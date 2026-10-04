@@ -150,7 +150,84 @@ function ScheduleModal({row,classes,teachers,rooms,close,saved}:{row:ScheduleRow
  </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu lịch học'}</button></div></div>
 }
 
-function Attendance(){return <div className="card" style={{padding:20}}><h3>Điểm danh</h3><p style={{color:'#667085'}}>Điểm danh sẽ lưu vào bảng attendance.</p></div>}
+function Attendance(){
+ const client=supabase();
+ const [classes,setClasses]=useState<{id:string;name:string;level:string|null}[]>([]);
+ const [classId,setClassId]=useState('');
+ const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+ const [students,setStudents]=useState<StudentRow[]>([]);
+ const [marks,setMarks]=useState<Record<string,{status:string;note:string}>>({});
+ const [loading,setLoading]=useState(false);
+ const [saving,setSaving]=useState(false);
+ const [error,setError]=useState('');
+ const [saved,setSaved]=useState('');
+
+ useEffect(()=>{client.from('classes').select('id,name,level').order('name').then(({data,error})=>{if(error)setError(error.message);setClasses(data||[]);if(data?.length)setClassId(data[0].id)})},[]);
+
+ const load=async()=>{
+   if(!classId||!date)return;
+   setLoading(true);setError('');setSaved('');
+   const [{data:s,error:se},{data:a,error:ae}]=await Promise.all([
+     client.from('students').select('id,student_code,full_name,dob,phone,parent_phone,email,class_id,enroll_date,status,notes,classes(id,name)').eq('class_id',classId).eq('status','active').order('student_code'),
+     client.from('attendance').select('student_id,status,note').eq('class_id',classId).eq('lesson_date',date)
+   ]);
+   if(se)setError(se.message); if(ae)setError(ae.message);
+   const next:Record<string,{status:string;note:string}>={};
+   (s||[]).forEach((st:any)=>next[st.id]={status:'present',note:''});
+   (a||[]).forEach((m:any)=>next[m.student_id]={status:m.status,note:m.note||''});
+   setStudents((s||[]) as any);setMarks(next);setLoading(false);
+ };
+ useEffect(()=>{load()},[classId,date]);
+
+ const setMark=(id:string,key:'status'|'note',value:string)=>{
+   setMarks(m=>({...m,[id]:{...(m[id]||{status:'present',note:''}),[key]:value}}));
+ };
+ const markAll=(status:string)=>{
+   const next={...marks};students.forEach(s=>next[s.id]={...(next[s.id]||{status:'present',note:''}),status});
+   setMarks(next);
+ };
+ const save=async()=>{
+   if(!classId||!students.length)return;
+   setSaving(true);setError('');setSaved('');
+   const payload=students.map(s=>({class_id:classId,student_id:s.id,lesson_date:date,status:marks[s.id]?.status||'present',note:marks[s.id]?.note?.trim()||null}));
+   const {error}=await client.from('attendance').upsert(payload,{onConflict:'student_id,lesson_date'});
+   if(error)setError(error.message);else setSaved('Đã lưu điểm danh.');
+   setSaving(false);
+ };
+ const statusLabel=(s:string)=>s==='present'?'Có mặt':s==='late'?'Đi trễ':s==='absent'?'Vắng':'Có phép';
+ return <div className="card" style={{padding:20}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'end',gap:12,flexWrap:'wrap',marginBottom:16}}>
+     <div><h3 style={{margin:'0 0 5px'}}>Điểm danh</h3><span style={{fontSize:13,color:'#667085'}}>Chọn lớp và ngày học để điểm danh</span></div>
+     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+       <select className="input" value={classId} onChange={e=>setClassId(e.target.value)} style={{minWidth:220}}>
+         {classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}
+       </select>
+       <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+     </div>
+   </div>
+   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:10}}>{error}</div>}
+   {saved&&<div style={{background:'#ecfdf3',color:'#067647',padding:10,borderRadius:8,marginBottom:10}}>{saved}</div>}
+   <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+     <button className="btn btn-light" onClick={()=>markAll('present')}>✓ Có mặt tất cả</button>
+     <button className="btn btn-light" onClick={()=>markAll('absent')}>Vắng tất cả</button>
+     <button className="btn btn-primary" disabled={saving||loading||!students.length} onClick={save}>{saving?'Đang lưu...':'Lưu điểm danh'}</button>
+   </div>
+   <div className="table-wrap"><table className="table"><thead><tr><th>Mã HS</th><th>Họ tên</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead><tbody>
+     {loading&&<tr><td colSpan={4} style={{textAlign:'center',padding:30}}>Đang tải...</td></tr>}
+     {!loading&&students.map(s=><tr key={s.id}>
+       <td><b>{s.student_code||'—'}</b></td><td>{s.full_name}</td>
+       <td><select className="input" value={marks[s.id]?.status||'present'} onChange={e=>setMark(s.id,'status',e.target.value)} style={{minWidth:130}}>
+         <option value="present">🟢 Có mặt</option><option value="late">🟡 Đi trễ</option><option value="absent">🔴 Vắng</option><option value="excused">🔵 Có phép</option>
+       </select></td>
+       <td><input className="input" value={marks[s.id]?.note||''} onChange={e=>setMark(s.id,'note',e.target.value)} placeholder="Ghi chú..."/></td>
+     </tr>)}
+     {!loading&&!students.length&&<tr><td colSpan={4} style={{textAlign:'center',padding:30,color:'#667085'}}>Lớp này chưa có học viên đang học.</td></tr>}
+   </tbody></table></div>
+   {students.length>0&&<div style={{marginTop:14,color:'#667085',fontSize:13}}>
+     Tổng {students.length} HS • Có mặt {students.filter(s=>marks[s.id]?.status==='present').length} • Đi trễ {students.filter(s=>marks[s.id]?.status==='late').length} • Vắng {students.filter(s=>marks[s.id]?.status==='absent').length} • Có phép {students.filter(s=>marks[s.id]?.status==='excused').length}
+   </div>}
+ </div>
+}
 function Fees(){return <div className="card" style={{padding:20}}><h3>Học phí</h3><p style={{color:'#667085'}}>Học phí sẽ lưu vào bảng fees.</p></div>}
 function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
 function Reports(){return <div className="card" style={{padding:20}}><h3>Báo cáo</h3><p style={{color:'#667085'}}>Báo cáo sẽ lấy số liệu trực tiếp từ Supabase.</p></div>}
