@@ -104,7 +104,7 @@ type StudentRow={id:string;student_code:string|null;full_name:string;dob:string|
 
 function Students(){
  const client=supabase();
- const [rows,setRows]=useState<StudentRow[]>([]); const [classes,setClasses]=useState<{id:string;name:string;level:string|null}[]>([]);
+ const [rows,setRows]=useState<StudentRow[]>([]); const [classes,setClasses]=useState<{id:string;class_code:string|null;name:string;level:string|null}[]>([]);
  const [q,setQ]=useState(''); const [open,setOpen]=useState(false); const [editing,setEditing]=useState<StudentRow|null>(null); const [error,setError]=useState('');
  const load=async()=>{const [{data:s,error:se},{data:c,error:ce}]=await Promise.all([
    client.from('students').select('*,classes(id,name)').order('created_at',{ascending:false}),
@@ -135,7 +135,7 @@ function Students(){
  </>;
 }
 
-function StudentModal({row,classes,close,saved}:{row:StudentRow|null;classes:{id:string;name:string;level:string|null}[];close:()=>void;saved:()=>void}){
+function StudentModal({row,classes,close,saved}:{row:StudentRow|null;classes:{id:string;class_code:string|null;name:string;level:string|null}[];close:()=>void;saved:()=>void}){
  const client=supabase(); const [form,setForm]=useState({student_code:row?.student_code||'',full_name:row?.full_name||'',dob:row?.dob||'',phone:row?.phone||'',parent_phone:row?.parent_phone||'',email:row?.email||'',class_id:row?.class_id||'',enroll_date:row?.enroll_date||new Date().toISOString().slice(0,10),status:row?.status||'active',notes:row?.notes||''}); const [busy,setBusy]=useState(false);const [error,setError]=useState('');
  const set=(k:string,v:string)=>setForm(f=>({...f,[k]:v}));
  const save=async()=>{if(!form.full_name.trim()){setError('Vui lòng nhập họ tên học viên.');return}setBusy(true);setError(''); const payload={student_code:form.student_code.trim()||null,full_name:form.full_name.trim(),dob:form.dob||null,phone:form.phone.trim()||null,parent_phone:form.parent_phone.trim()||null,email:form.email.trim()||null,class_id:form.class_id||null,enroll_date:form.enroll_date||null,status:form.status,notes:form.notes.trim()||null}; const res=row?await client.from('students').update(payload).eq('id',row.id):await client.from('students').insert(payload); if(res.error)setError(res.error.message);else saved();setBusy(false)};
@@ -153,12 +153,12 @@ function StudentModal({row,classes,close,saved}:{row:StudentRow|null;classes:{id
    </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu học viên'}</button></div></div>
 }
 
-type ScheduleRow={id:string;class_id:string;weekday:number;start_time:string;end_time:string;room_id:string|null;teacher_id:string|null;note:string|null;active:boolean;classes?:{id:string;name:string;level:string|null}|null;teachers?:{id:string;full_name:string}|null;rooms?:{id:string;name:string}|null};
+type ScheduleRow={id:string;class_id:string;weekday:number;start_time:string;end_time:string;room_id:string|null;teacher_id:string|null;note:string|null;active:boolean;classes?:{id:string;class_code:string|null;name:string;level:string|null}|null;teachers?:{id:string;full_name:string}|null;rooms?:{id:string;name:string}|null};
 
 function Schedule(){
  const client=supabase();
  const [rows,setRows]=useState<ScheduleRow[]>([]);
- const [classes,setClasses]=useState<{id:string;name:string;level:string|null}[]>([]);
+ const [classes,setClasses]=useState<{id:string;class_code:string|null;name:string;level:string|null}[]>([]);
  const [teachers,setTeachers]=useState<Teacher[]>([]);
  const [rooms,setRooms]=useState<Room[]>([]);
  const [q,setQ]=useState(''); const [open,setOpen]=useState(false); const [editing,setEditing]=useState<ScheduleRow|null>(null); const [error,setError]=useState('');
@@ -192,7 +192,7 @@ function Schedule(){
  </>;
 }
 
-function ScheduleModal({row,classes,teachers,rooms,close,saved}:{row:ScheduleRow|null;classes:{id:string;name:string;level:string|null}[];teachers:Teacher[];rooms:Room[];close:()=>void;saved:()=>void}){
+function ScheduleModal({row,classes,teachers,rooms,close,saved}:{row:ScheduleRow|null;classes:{id:string;class_code:string|null;name:string;level:string|null}[];teachers:Teacher[];rooms:Room[];close:()=>void;saved:()=>void}){
  const client=supabase();
  const [form,setForm]=useState({class_id:row?.class_id||'',weekday:String(row?.weekday||1),start_time:row?.start_time?.slice(0,5)||'17:30',end_time:row?.end_time?.slice(0,5)||'19:00',teacher_id:row?.teacher_id||'',room_id:row?.room_id||'',note:row?.note||'',active:row?.active!==false});
  const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const set=(k:string,v:string|boolean)=>setForm(f=>({...f,[k]:v}));
@@ -210,7 +210,7 @@ function ScheduleModal({row,classes,teachers,rooms,close,saved}:{row:ScheduleRow
 
 function Attendance(){
  const client=supabase();
- const [classes,setClasses]=useState<{id:string;name:string;level:string|null}[]>([]);
+ const [classes,setClasses]=useState<{id:string;class_code:string|null;name:string;level:string|null}[]>([]);
  const [classId,setClassId]=useState('');
  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
  const [students,setStudents]=useState<StudentRow[]>([]);
