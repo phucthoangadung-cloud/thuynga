@@ -19,7 +19,7 @@ export default function Home(){
   return <div className="desktop-grid" style={{display:'grid',gridTemplateColumns:'250px 1fr',minHeight:'100vh'}}>
     <aside className="sidebar" style={{padding:18}}><div style={{fontSize:20,fontWeight:800,marginBottom:28}}>🎓 Language Center</div>{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div style={{marginTop:30,color:'#94a3b8',fontSize:12}}>OFFLINE CENTER • V1</div><button className="btn btn-light" style={{marginTop:18,width:'100%'}} onClick={()=>client.auth.signOut()}><LogOut size={15}/> Đăng xuất</button></aside>
     <main><div className="mobilebar"><button className="btn btn-light" onClick={()=>setMobile(!mobile)}><Menu/></button><b>Language Center</b>{mobile&&<div className="mobilemenu">{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div className="navitem" onClick={()=>client.auth.signOut()}><LogOut size={18}/> Đăng xuất</div></div>}</div>
-      <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{tab==='Lớp học'&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent('open-class-modal'))}><Plus size={16}/> Thêm lớp</button>}</div>
+      <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{(tab==='Lớp học'||tab==='Lịch học')&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent(tab==='Lớp học'?'open-class-modal':'open-schedule-modal'))}><Plus size={16}/> {tab==='Lớp học'?'Thêm lớp':'Thêm lịch'}</button>}</div>
         {tab==='Dashboard'&&<Dashboard/>}{tab==='Lớp học'&&<Classes/>}{tab==='Học viên'&&<Students/>}{tab==='Lịch học'&&<Schedule/>}{tab==='Điểm danh'&&<Attendance/>}{tab==='Học phí'&&<Fees/>}{tab==='Giáo viên'&&<Teachers/>}{tab==='Báo cáo'&&<Reports/>}
       </div></main>
   </div>
@@ -95,7 +95,61 @@ function StudentModal({row,classes,close,saved}:{row:StudentRow|null;classes:{id
    </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu học viên'}</button></div></div>
 }
 
-function Schedule(){return <div className="card" style={{padding:20}}><h3>Thời khóa biểu</h3><p style={{color:'#667085'}}>Lịch học sẽ lấy từ classes và schedules.</p></div>}
+type ScheduleRow={id:string;class_id:string;weekday:number;start_time:string;end_time:string;room_id:string|null;teacher_id:string|null;note:string|null;active:boolean;classes?:{id:string;name:string;level:string|null}|null;teachers?:{id:string;full_name:string}|null;rooms?:{id:string;name:string}|null};
+
+function Schedule(){
+ const client=supabase();
+ const [rows,setRows]=useState<ScheduleRow[]>([]);
+ const [classes,setClasses]=useState<{id:string;name:string;level:string|null}[]>([]);
+ const [teachers,setTeachers]=useState<Teacher[]>([]);
+ const [rooms,setRooms]=useState<Room[]>([]);
+ const [q,setQ]=useState(''); const [open,setOpen]=useState(false); const [editing,setEditing]=useState<ScheduleRow|null>(null); const [error,setError]=useState('');
+ const days=['T2','T3','T4','T5','T6','T7','CN'];
+ const load=async()=>{
+   const [{data:s,error:se},{data:c,error:ce},{data:t},{data:r}]=await Promise.all([
+     client.from('schedules').select('*,classes(id,name,level),teachers(id,full_name),rooms(id,name)').order('weekday').order('start_time'),
+     client.from('classes').select('id,name,level').order('name'),
+     client.from('teachers').select('id,full_name').eq('status','active').order('full_name'),
+     client.from('rooms').select('id,name,capacity').order('name')
+   ]);
+   if(se)setError(se.message); if(ce)setError(ce.message); setRows((s||[]) as any); setClasses(c||[]); setTeachers(t||[]); setRooms(r||[]);
+ };
+ useEffect(()=>{load();const h=()=>{setEditing(null);setOpen(true)};window.addEventListener('open-schedule-modal',h);return()=>window.removeEventListener('open-schedule-modal',h)},[]);
+ const filtered=useMemo(()=>rows.filter(r=>`${r.classes?.name||''} ${r.teachers?.full_name||''} ${r.rooms?.name||''} ${days[r.weekday-1]||''}`.toLowerCase().includes(q.toLowerCase())),[rows,q]);
+ const remove=async(id:string)=>{if(!confirm('Xóa lịch học này?'))return;const {error}=await client.from('schedules').delete().eq('id',id);if(error)setError(error.message);else load()};
+ return <>
+   <div className="card" style={{padding:20}}>
+     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:15,gap:10,flexWrap:'wrap'}}>
+       <div><h3 style={{margin:'0 0 4px'}}>Lịch học hàng tuần</h3><span style={{fontSize:13,color:'#667085'}}>{filtered.length} lịch học</span></div>
+       <div style={{position:'relative'}}><Search size={16} style={{position:'absolute',left:10,top:11,color:'#98a2b3'}}/><input className="input" style={{width:280,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm lớp, giáo viên, phòng..."/></div>
+     </div>
+     {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:10}}>{error}</div>}
+     <div className="table-wrap"><table className="table"><thead><tr>{['Thứ','Giờ','Lớp','Giáo viên','Phòng','Ghi chú',''].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
+       {filtered.map(r=><tr key={r.id}><td><b>{days[r.weekday-1]||'—'}</b></td><td>{r.start_time?.slice(0,5)}{r.end_time?` - ${r.end_time.slice(0,5)}`:''}</td><td><b>{r.classes?.name||'—'}</b>{r.classes?.level&&<div style={{fontSize:12,color:'#667085'}}>{r.classes.level}</div>}</td><td>{r.teachers?.full_name||'—'}</td><td>{r.rooms?.name||'—'}</td><td>{r.note||'—'}</td><td><div style={{display:'flex',gap:5}}><button className="btn btn-light" title="Sửa" onClick={()=>{setEditing(r);setOpen(true)}}><Pencil size={15}/></button><button className="btn btn-light" title="Xóa" onClick={()=>remove(r.id)}><Trash2 size={15}/></button></div></td></tr>)}
+       {filtered.length===0&&<tr><td colSpan={7} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có lịch học.</td></tr>}
+     </tbody></table></div>
+   </div>
+   <div className="card" style={{padding:20,marginTop:16}}><h3 style={{marginTop:0}}>Thời khóa biểu tuần</h3><div className="table-wrap"><table className="table"><thead><tr>{days.map(d=><th key={d}>{d}</th>)}</tr></thead><tbody><tr>{days.map((_,i)=><td key={i} style={{verticalAlign:'top',minWidth:150}}>{filtered.filter(r=>r.weekday===i+1).map(r=><div key={r.id} style={{padding:10,marginBottom:8,border:'1px solid #dbe3ef',borderRadius:10,background:'#f8fbff'}}><b>{r.start_time.slice(0,5)}</b>{r.end_time&&` - ${r.end_time.slice(0,5)}`}<div style={{fontWeight:700,marginTop:4}}>{r.classes?.name||'—'}</div><div style={{fontSize:12,color:'#667085'}}>{r.rooms?.name||'Chưa có phòng'} • {r.teachers?.full_name||'Chưa có GV'}</div></div>)}</td>)}</tr></tbody></table></div></div>
+   {open&&<ScheduleModal row={editing} classes={classes} teachers={teachers} rooms={rooms} close={()=>setOpen(false)} saved={()=>{setOpen(false);load()}}/>}
+ </>;
+}
+
+function ScheduleModal({row,classes,teachers,rooms,close,saved}:{row:ScheduleRow|null;classes:{id:string;name:string;level:string|null}[];teachers:Teacher[];rooms:Room[];close:()=>void;saved:()=>void}){
+ const client=supabase();
+ const [form,setForm]=useState({class_id:row?.class_id||'',weekday:String(row?.weekday||1),start_time:row?.start_time?.slice(0,5)||'17:30',end_time:row?.end_time?.slice(0,5)||'19:00',teacher_id:row?.teacher_id||'',room_id:row?.room_id||'',note:row?.note||'',active:row?.active!==false});
+ const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const set=(k:string,v:string|boolean)=>setForm(f=>({...f,[k]:v}));
+ const save=async()=>{if(!form.class_id){setError('Vui lòng chọn lớp học.');return}if(!form.start_time||!form.end_time){setError('Vui lòng nhập giờ học.');return}setBusy(true);setError('');const payload={class_id:form.class_id,weekday:Number(form.weekday),start_time:form.start_time,end_time:form.end_time,teacher_id:form.teacher_id||null,room_id:form.room_id||null,note:form.note.trim()||null,active:form.active};const res=row?await client.from('schedules').update(payload).eq('id',row.id):await client.from('schedules').insert(payload);if(res.error)setError(res.error.message);else saved();setBusy(false)};
+ return <div className="modal-overlay"><div className="card modal"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2>{row?'Sửa lịch học':'Thêm lịch học'}</h2><button className="btn btn-light" onClick={close}><X/></button></div><div className="form-grid">
+   <label>Lớp học<select className="input" value={form.class_id} onChange={e=>set('class_id',e.target.value)}><option value="">Chọn lớp</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}</select></label>
+   <label>Thứ<select className="input" value={form.weekday} onChange={e=>set('weekday',e.target.value)}>{['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'].map((d,i)=><option key={i} value={i+1}>{d}</option>)}</select></label>
+   <label>Giờ bắt đầu<input className="input" type="time" value={form.start_time} onChange={e=>set('start_time',e.target.value)}/></label>
+   <label>Giờ kết thúc<input className="input" type="time" value={form.end_time} onChange={e=>set('end_time',e.target.value)}/></label>
+   <label>Giáo viên<select className="input" value={form.teacher_id} onChange={e=>set('teacher_id',e.target.value)}><option value="">Theo giáo viên của lớp</option>{teachers.map(t=><option key={t.id} value={t.id}>{t.full_name}</option>)}</select></label>
+   <label>Phòng<select className="input" value={form.room_id} onChange={e=>set('room_id',e.target.value)}><option value="">Chọn phòng</option>{rooms.map(r=><option key={r.id} value={r.id}>{r.name} ({r.capacity})</option>)}</select></label>
+   <label style={{gridColumn:'1/-1'}}>Ghi chú<input className="input" value={form.note} onChange={e=>set('note',e.target.value)} placeholder="Ví dụ: Phòng máy / học bù..."/></label>
+ </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu lịch học'}</button></div></div>
+}
+
 function Attendance(){return <div className="card" style={{padding:20}}><h3>Điểm danh</h3><p style={{color:'#667085'}}>Điểm danh sẽ lưu vào bảng attendance.</p></div>}
 function Fees(){return <div className="card" style={{padding:20}}><h3>Học phí</h3><p style={{color:'#667085'}}>Học phí sẽ lưu vào bảng fees.</p></div>}
 function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
