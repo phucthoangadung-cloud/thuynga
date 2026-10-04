@@ -157,10 +157,15 @@ function Attendance(){
  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
  const [students,setStudents]=useState<StudentRow[]>([]);
  const [marks,setMarks]=useState<Record<string,{status:string;note:string}>>({});
+ const [history,setHistory]=useState<any[]>([]);
  const [loading,setLoading]=useState(false);
+ const [loadingHistory,setLoadingHistory]=useState(false);
  const [saving,setSaving]=useState(false);
  const [error,setError]=useState('');
  const [saved,setSaved]=useState('');
+
+ const monthStart=`${date.slice(0,7)}-01`;
+ const monthEnd=new Date(Number(date.slice(0,4)),Number(date.slice(5,7)),0).toISOString().slice(0,10);
 
  useEffect(()=>{client.from('classes').select('id,name,level').order('name').then(({data,error})=>{if(error)setError(error.message);setClasses(data||[]);if(data?.length)setClassId(data[0].id)})},[]);
 
@@ -177,31 +182,40 @@ function Attendance(){
    (a||[]).forEach((m:any)=>next[m.student_id]={status:m.status,note:m.note||''});
    setStudents((s||[]) as any);setMarks(next);setLoading(false);
  };
- useEffect(()=>{load()},[classId,date]);
 
- const setMark=(id:string,key:'status'|'note',value:string)=>{
-   setMarks(m=>({...m,[id]:{...(m[id]||{status:'present',note:''}),[key]:value}}));
+ const loadHistory=async()=>{
+   if(!classId)return;
+   setLoadingHistory(true);
+   const {data,error}=await client.from('attendance').select('student_id,lesson_date,status,note,students(student_code,full_name)').eq('class_id',classId).gte('lesson_date',monthStart).lte('lesson_date',monthEnd).order('lesson_date',{ascending:false});
+   if(error)setError(error.message); else setHistory(data||[]);
+   setLoadingHistory(false);
  };
- const markAll=(status:string)=>{
-   const next={...marks};students.forEach(s=>next[s.id]={...(next[s.id]||{status:'present',note:''}),status});
-   setMarks(next);
- };
+ useEffect(()=>{load()},[classId,date]);
+ useEffect(()=>{loadHistory()},[classId,date.slice(0,7)]);
+
+ const setMark=(id:string,key:'status'|'note',value:string)=>setMarks(m=>({...m,[id]:{...(m[id]||{status:'present',note:''}),[key]:value}}));
+ const markAll=(status:string)=>{const next={...marks};students.forEach(s=>next[s.id]={...(next[s.id]||{status:'present',note:''}),status});setMarks(next)};
  const save=async()=>{
    if(!classId||!students.length)return;
    setSaving(true);setError('');setSaved('');
    const payload=students.map(s=>({class_id:classId,student_id:s.id,lesson_date:date,status:marks[s.id]?.status||'present',note:marks[s.id]?.note?.trim()||null}));
    const {error}=await client.from('attendance').upsert(payload,{onConflict:'student_id,lesson_date'});
-   if(error)setError(error.message);else setSaved('Đã lưu điểm danh.');
+   if(error)setError(error.message);else {setSaved('Đã lưu điểm danh.');await loadHistory()}
    setSaving(false);
  };
  const statusLabel=(s:string)=>s==='present'?'Có mặt':s==='late'?'Đi trễ':s==='absent'?'Vắng':'Có phép';
- return <div className="card" style={{padding:20}}>
+ const summary=useMemo(()=>{
+   const map:Record<string,any>={};
+   history.forEach((r:any)=>{const id=r.student_id;if(!map[id])map[id]={id,name:r.students?.full_name||'—',code:r.students?.student_code||'—',present:0,late:0,absent:0,excused:0,total:0,days:new Set<string>()};const x=map[id];x.total++;x.days.add(r.lesson_date);if(r.status==='present')x.present++;else if(r.status==='late')x.late++;else if(r.status==='absent')x.absent++;else if(r.status==='excused')x.excused++});
+   return Object.values(map).map((x:any)=>({...x,lessonDays:x.days.size,attendancePct:x.total?Math.round(((x.present+x.late)/x.total)*100):0})).sort((a:any,b:any)=>a.code.localeCompare(b.code));
+ },[history]);
+ const monthTotals=useMemo(()=>({present:history.filter(r=>r.status==='present').length,late:history.filter(r=>r.status==='late').length,absent:history.filter(r=>r.status==='absent').length,excused:history.filter(r=>r.status==='excused').length}),[history]);
+ return <>
+ <div className="card" style={{padding:20}}>
    <div style={{display:'flex',justifyContent:'space-between',alignItems:'end',gap:12,flexWrap:'wrap',marginBottom:16}}>
      <div><h3 style={{margin:'0 0 5px'}}>Điểm danh</h3><span style={{fontSize:13,color:'#667085'}}>Chọn lớp và ngày học để điểm danh</span></div>
      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-       <select className="input" value={classId} onChange={e=>setClassId(e.target.value)} style={{minWidth:220}}>
-         {classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}
-       </select>
+       <select className="input" value={classId} onChange={e=>setClassId(e.target.value)} style={{minWidth:220}}>{classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}</select>
        <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
      </div>
    </div>
@@ -214,19 +228,21 @@ function Attendance(){
    </div>
    <div className="table-wrap"><table className="table"><thead><tr><th>Mã HS</th><th>Họ tên</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead><tbody>
      {loading&&<tr><td colSpan={4} style={{textAlign:'center',padding:30}}>Đang tải...</td></tr>}
-     {!loading&&students.map(s=><tr key={s.id}>
-       <td><b>{s.student_code||'—'}</b></td><td>{s.full_name}</td>
-       <td><select className="input" value={marks[s.id]?.status||'present'} onChange={e=>setMark(s.id,'status',e.target.value)} style={{minWidth:130}}>
-         <option value="present">🟢 Có mặt</option><option value="late">🟡 Đi trễ</option><option value="absent">🔴 Vắng</option><option value="excused">🔵 Có phép</option>
-       </select></td>
-       <td><input className="input" value={marks[s.id]?.note||''} onChange={e=>setMark(s.id,'note',e.target.value)} placeholder="Ghi chú..."/></td>
-     </tr>)}
+     {!loading&&students.map(s=><tr key={s.id}><td><b>{s.student_code||'—'}</b></td><td>{s.full_name}</td><td><select className="input" value={marks[s.id]?.status||'present'} onChange={e=>setMark(s.id,'status',e.target.value)} style={{minWidth:130}}><option value="present">🟢 Có mặt</option><option value="late">🟡 Đi trễ</option><option value="absent">🔴 Vắng</option><option value="excused">🔵 Có phép</option></select></td><td><input className="input" value={marks[s.id]?.note||''} onChange={e=>setMark(s.id,'note',e.target.value)} placeholder="Ghi chú..."/></td></tr>)}
      {!loading&&!students.length&&<tr><td colSpan={4} style={{textAlign:'center',padding:30,color:'#667085'}}>Lớp này chưa có học viên đang học.</td></tr>}
    </tbody></table></div>
-   {students.length>0&&<div style={{marginTop:14,color:'#667085',fontSize:13}}>
-     Tổng {students.length} HS • Có mặt {students.filter(s=>marks[s.id]?.status==='present').length} • Đi trễ {students.filter(s=>marks[s.id]?.status==='late').length} • Vắng {students.filter(s=>marks[s.id]?.status==='absent').length} • Có phép {students.filter(s=>marks[s.id]?.status==='excused').length}
-   </div>}
+   {students.length>0&&<div style={{marginTop:14,color:'#667085',fontSize:13}}>Tổng {students.length} HS • Có mặt {students.filter(s=>marks[s.id]?.status==='present').length} • Đi trễ {students.filter(s=>marks[s.id]?.status==='late').length} • Vắng {students.filter(s=>marks[s.id]?.status==='absent').length} • Có phép {students.filter(s=>marks[s.id]?.status==='excused').length}</div>}
  </div>
+ <div className="card" style={{padding:20,marginTop:16}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}><div><h3 style={{margin:'0 0 4px'}}>Chuyên cần tháng {date.slice(0,7)}</h3><div style={{fontSize:13,color:'#667085'}}>Theo dữ liệu điểm danh đã lưu của lớp đang chọn</div></div><div style={{fontSize:13,color:'#667085'}}>Có mặt {monthTotals.present} • Trễ {monthTotals.late} • Vắng {monthTotals.absent} • Có phép {monthTotals.excused}</div></div>
+   <div className="table-wrap" style={{marginTop:14}}><table className="table"><thead><tr><th>Mã HS</th><th>Họ tên</th><th>Số buổi ghi nhận</th><th>Có mặt</th><th>Đi trễ</th><th>Vắng</th><th>Có phép</th><th>Chuyên cần</th></tr></thead><tbody>
+     {loadingHistory&&<tr><td colSpan={8} style={{textAlign:'center',padding:25}}>Đang tải lịch sử...</td></tr>}
+     {!loadingHistory&&summary.map((r:any)=><tr key={r.id}><td><b>{r.code}</b></td><td>{r.name}</td><td>{r.total}</td><td>{r.present}</td><td>{r.late}</td><td>{r.absent}</td><td>{r.excused}</td><td><span className={'pill '+(r.attendancePct>=90?'green':r.attendancePct>=75?'yellow':'blue')}>{r.attendancePct}%</span></td></tr>)}
+     {!loadingHistory&&!summary.length&&<tr><td colSpan={8} style={{textAlign:'center',padding:25,color:'#667085'}}>Chưa có dữ liệu điểm danh trong tháng này.</td></tr>}
+   </tbody></table></div>
+   {history.length>0&&<div style={{marginTop:16}}><h4 style={{margin:'0 0 10px'}}>Lịch sử điểm danh</h4><div style={{display:'grid',gap:8,maxHeight:260,overflow:'auto'}}>{history.map((r:any,i:number)=><div key={r.student_id+'-'+r.lesson_date+'-'+i} style={{display:'flex',justifyContent:'space-between',gap:10,padding:'9px 10px',border:'1px solid #e4e7ec',borderRadius:8,fontSize:13}}><span><b>{r.lesson_date}</b> • {r.students?.student_code||'—'} • {r.students?.full_name||'—'}</span><span><b>{statusLabel(r.status)}</b>{r.note?` • ${r.note}`:''}</span></div>)}</div></div>}
+ </div>
+ </>;
 }
 function Fees(){return <div className="card" style={{padding:20}}><h3>Học phí</h3><p style={{color:'#667085'}}>Học phí sẽ lưu vào bảng fees.</p></div>}
 function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
