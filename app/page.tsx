@@ -361,4 +361,71 @@ function Fees(){
  </>;
 }
 function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
-function Reports(){return <div className="card" style={{padding:20}}><h3>Báo cáo</h3><p style={{color:'#667085'}}>Báo cáo sẽ lấy số liệu trực tiếp từ Supabase.</p></div>}
+function Reports(){
+ const client=supabase();
+ const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+ const [classId,setClassId]=useState('all');
+ const [classes,setClasses]=useState<{id:string;name:string;tuition:number;status:string}[]>([]);
+ const [data,setData]=useState({students:0,classes:0,teachers:0,due:0,paid:0,debt:0,paidStudents:0,partialStudents:0,unpaidStudents:0,attendanceTotal:0,attendancePresent:0,attendanceLate:0,attendanceAbsent:0,attendanceExcused:0});
+ const [classRows,setClassRows]=useState<any[]>([]);
+ const [loading,setLoading]=useState(false);
+ const [error,setError]=useState('');
+ const money=(n:number)=>Number(n||0).toLocaleString('vi-VN')+'đ';
+ const monthStart=`${month}-01`;
+ const nextMonth=new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),1).toISOString().slice(0,10);
+ const load=async()=>{
+   setLoading(true);setError('');
+   const [{data:c,error:ce},{data:s,error:se},{data:t,error:te},{data:f,error:fe},{data:a,error:ae}]=await Promise.all([
+     client.from('classes').select('id,name,tuition,status').order('name'),
+     client.from('students').select('id,class_id,status').eq('status','active'),
+     client.from('teachers').select('id,status').eq('status','active'),
+     client.from('fees').select('student_id,class_id,amount_due,amount_paid,status').eq('month',monthStart),
+     client.from('attendance').select('student_id,class_id,status,lesson_date').gte('lesson_date',monthStart).lt('lesson_date',nextMonth)
+   ]);
+   const firstErr=ce||se||te||fe||ae;
+   if(firstErr){setError(firstErr.message);setLoading(false);return;}
+   const cls=(c||[]) as any[];
+   const students=(s||[]) as any[];
+   const teachers=(t||[]) as any[];
+   const fees=(f||[]) as any[];
+   const att=(a||[]) as any[];
+   const activeClassIds=new Set(cls.filter(x=>x.status==='active').map(x=>x.id));
+   const filteredStudents=classId==='all'?students:students.filter(x=>x.class_id===classId);
+   const filteredFees=classId==='all'?fees:fees.filter(x=>x.class_id===classId);
+   const filteredAtt=classId==='all'?att:att.filter(x=>x.class_id===classId);
+   const due=filteredFees.reduce((n,r)=>n+Number(r.amount_due||0),0);
+   const paid=filteredFees.reduce((n,r)=>n+Number(r.amount_paid||0),0);
+   const classMap=new Map(cls.map(x=>[x.id,x]));
+   const grouped=new Map<string,any>();
+   filteredStudents.forEach(st=>{if(!grouped.has(st.class_id)){const c=classMap.get(st.class_id);grouped.set(st.class_id,{id:st.class_id,name:c?.name||'Chưa xếp lớp',students:0,due:0,paid:0,debt:0,paidStudents:0,partialStudents:0,unpaidStudents:0})}grouped.get(st.class_id).students++});
+   filteredFees.forEach(r=>{if(!grouped.has(r.class_id)){const c=classMap.get(r.class_id);grouped.set(r.class_id,{id:r.class_id,name:c?.name||'—',students:0,due:0,paid:0,debt:0,paidStudents:0,partialStudents:0,unpaidStudents:0})}const x=grouped.get(r.class_id);const d=Number(r.amount_due||0),p=Number(r.amount_paid||0);x.due+=d;x.paid+=p;x.debt+=Math.max(0,d-p);if(d>0&&p>=d)x.paidStudents++;else if(p>0)x.partialStudents++;else x.unpaidStudents++});
+   setClasses(cls);setClassRows(Array.from(grouped.values()).sort((x,y)=>x.name.localeCompare(y.name)));
+   setData({students:filteredStudents.length,classes:classId==='all'?cls.filter(x=>x.status==='active').length:activeClassIds.has(classId)?1:0,teachers:teachers.length,due,paid,debt:Math.max(0,due-paid),paidStudents:filteredFees.filter(r=>Number(r.amount_due||0)>0&&Number(r.amount_paid||0)>=Number(r.amount_due||0)).length,partialStudents:filteredFees.filter(r=>Number(r.amount_paid||0)>0&&Number(r.amount_paid||0)<Number(r.amount_due||0)).length,unpaidStudents:filteredFees.filter(r=>Number(r.amount_paid||0)<=0).length,attendanceTotal:filteredAtt.length,attendancePresent:filteredAtt.filter(r=>r.status==='present').length,attendanceLate:filteredAtt.filter(r=>r.status==='late').length,attendanceAbsent:filteredAtt.filter(r=>r.status==='absent').length,attendanceExcused:filteredAtt.filter(r=>r.status==='excused').length});
+   setLoading(false);
+ };
+ useEffect(()=>{load()},[month,classId]);
+ const collectionPct=data.due?Math.round(data.paid/data.due*100):0;
+ const attendancePct=data.attendanceTotal?Math.round((data.attendancePresent+data.attendanceLate)/data.attendanceTotal*100):0;
+ const maxRevenue=Math.max(1,...classRows.map(r=>Number(r.paid||0)));
+ return <>
+  <div className="card" style={{padding:20}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'end',gap:12,flexWrap:'wrap',marginBottom:18}}>
+    <div><h3 style={{margin:'0 0 5px'}}>Báo cáo tổng hợp</h3><span style={{fontSize:13,color:'#667085'}}>Tổng hợp học viên, học phí và chuyên cần theo tháng</span></div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={classId} onChange={e=>setClassId(e.target.value)} style={{minWidth:220}}><option value="all">Tất cả lớp</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><input className="input" type="month" value={month} onChange={e=>setMonth(e.target.value)}/></div>
+   </div>
+   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:12}}>{error}</div>}
+   <div className="stats" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+    {[[data.students,'Học viên đang học'],[data.classes,'Lớp đang học'],[data.teachers,'Giáo viên'],[data.attendanceTotal,'Lượt điểm danh']].map(([v,l])=><div key={String(l)} style={{border:'1px solid #e4e7ec',borderRadius:10,padding:15}}><div style={{fontSize:24,fontWeight:800}}>{v}</div><div style={{fontSize:12,color:'#667085',marginTop:4}}>{l}</div></div>)}
+   </div>
+  </div>
+  <div className="stats" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginTop:16}}>
+   {[[money(data.due),'Tổng phải thu'],[money(data.paid),'Đã thu'],[money(data.debt),'Còn nợ'],[collectionPct+'%','Tỷ lệ thu']].map(([v,l])=><div className="card" key={String(l)} style={{padding:18}}><div style={{fontSize:22,fontWeight:800}}>{v}</div><div style={{fontSize:12,color:'#667085',marginTop:4}}>{l}</div></div>)}
+  </div>
+  <div className="stats" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginTop:16}}>
+   <div className="card" style={{padding:20}}><h3 style={{marginTop:0}}>Trạng thái học phí</h3><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}><div style={{padding:14,borderRadius:10,background:'#ecfdf3'}}><b>{data.paidStudents}</b><div style={{fontSize:12,marginTop:4}}>Đã đóng</div></div><div style={{padding:14,borderRadius:10,background:'#fffaeb'}}><b>{data.partialStudents}</b><div style={{fontSize:12,marginTop:4}}>Đóng một phần</div></div><div style={{padding:14,borderRadius:10,background:'#eff8ff'}}><b>{data.unpaidStudents}</b><div style={{fontSize:12,marginTop:4}}>Chưa đóng</div></div></div></div>
+   <div className="card" style={{padding:20}}><h3 style={{marginTop:0}}>Chuyên cần</h3><div style={{fontSize:28,fontWeight:800}}>{attendancePct}%</div><div style={{fontSize:12,color:'#667085',marginBottom:12}}>Tỷ lệ có mặt + đi trễ</div><div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,fontSize:12}}><span>🟢 {data.attendancePresent}</span><span>🟡 {data.attendanceLate}</span><span>🔴 {data.attendanceAbsent}</span><span>🔵 {data.attendanceExcused}</span></div></div>
+  </div>
+  <div className="card" style={{padding:20,marginTop:16}}><h3 style={{marginTop:0}}>Doanh thu theo lớp</h3>{loading?<div style={{padding:25,textAlign:'center'}}>Đang tải...</div>:<div className="table-wrap"><table className="table"><thead><tr><th>Lớp</th><th>Học viên</th><th>Phải thu</th><th>Đã thu</th><th>Còn nợ</th><th>Tiến độ thu</th></tr></thead><tbody>{classRows.map(r=>{const pct=r.due?Math.round(r.paid/r.due*100):0;return <tr key={r.id}><td><b>{r.name}</b></td><td>{r.students}</td><td>{money(r.due)}</td><td>{money(r.paid)}</td><td><b>{money(r.debt)}</b></td><td><div style={{display:'flex',alignItems:'center',gap:8,minWidth:150}}><div style={{height:8,background:'#e4e7ec',borderRadius:99,flex:1,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,pct)}%`,background:'#2563eb'}}/></div><span style={{fontSize:12}}>{pct}%</span></div></td></tr>})}{!classRows.length&&<tr><td colSpan={6} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có dữ liệu học phí trong tháng này.</td></tr>}</tbody></table></div>}</div>
+  <div className="card" style={{padding:20,marginTop:16}}><h3 style={{marginTop:0}}>Tóm tắt</h3><p style={{margin:'6px 0',color:'#475467'}}>Tháng <b>{month}</b>: trung tâm đang có <b>{data.students}</b> học viên đang học, tổng phải thu <b>{money(data.due)}</b>, đã thu <b>{money(data.paid)}</b> và còn nợ <b>{money(data.debt)}</b>.</p><p style={{margin:'6px 0',color:'#475467'}}>Chuyên cần ghi nhận <b>{data.attendanceTotal}</b> lượt, tỷ lệ có mặt + đi trễ <b>{attendancePct}%</b>.</p></div>
+ </>;
+}
