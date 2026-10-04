@@ -55,35 +55,46 @@ function Students(){
  useEffect(()=>{load()},[]);
  const filtered=useMemo(()=>rows.filter(r=>`${r.student_code||''} ${r.full_name} ${r.phone||''} ${r.parent_phone||''} ${r.classes?.name||''}`.toLowerCase().includes(q.toLowerCase())),[rows,q]);
  const remove=async(id:string)=>{if(!confirm('Xóa học viên này?'))return;const {error}=await client.from('students').delete().eq('id',id);if(error)setError(error.message);else load()};
- return <><div className="card" style={{padding:20}}>
-   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:15,gap:10,flexWrap:'wrap'}}>
-     <div><h3 style={{margin:'0 0 4px'}}>Danh sách học viên</h3><span style={{fontSize:13,color:'#667085'}}>{filtered.length} học viên</span></div>
-     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><div style={{position:'relative'}}><Search size={16} style={{position:'absolute',left:10,top:11,color:'#98a2b3'}}/><input className="input" style={{width:280,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm mã, tên, SĐT, lớp..."/></div><button className="btn btn-primary" onClick={()=>{setEditing(null);setOpen(true)}}><Plus size={16}/> Thêm học viên</button></div>
+ return <>
+   <div className="card" style={{padding:20}}>
+     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:15,gap:10,flexWrap:'wrap'}}>
+       <div><h3 style={{margin:'0 0 4px'}}>Danh sách học viên</h3><span style={{fontSize:13,color:'#667085'}}>{filtered.length} học viên</span></div>
+       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><div style={{position:'relative'}}><Search size={16} style={{position:'absolute',left:10,top:11,color:'#98a2b3'}}/><input className="input" style={{width:280,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm mã, tên, SĐT, lớp..."/></div><button className="btn btn-primary" onClick={()=>{setEditing(null);setOpen(true)}}><Plus size={16}/> Thêm học viên</button></div>
+     </div>
+     {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:10}}>{error}</div>}
+     <div className="table-wrap"><table className="table"><thead><tr>{['Mã HS','Họ tên','Ngày sinh','Lớp','SĐT','SĐT phụ huynh','Trạng thái',''].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
+     {filtered.map(r=><tr key={r.id}><td><b>{r.student_code||'—'}</b></td><td>{r.full_name}</td><td>{r.dob?new Date(r.dob+'T00:00:00').toLocaleDateString('vi-VN'):'—'}</td><td>{r.classes?.name||'Chưa xếp lớp'}</td><td>{r.phone||'—'}</td><td>{r.parent_phone||'—'}</td><td><span className={'pill '+(r.status==='active'?'green':r.status==='reserved'?'yellow':'blue')}>{r.status==='active'?'Đang học':r.status==='reserved'?'Bảo lưu':'Nghỉ'}</span></td><td><div style={{display:'flex',gap:5}}><button className="btn btn-light" title="Sửa" onClick={()=>{setEditing(r);setOpen(true)}}><Pencil size={15}/></button><button className="btn btn-light" title="Xóa" onClick={()=>remove(r.id)}><Trash2 size={15}/></button></div></td></tr>)}
+     {filtered.length===0&&<tr><td colSpan={8} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có học viên.</td></tr>}</tbody></table></div>
    </div>
-   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:10}}>{error}</div>}
-   <div className="table-wrap"><table className="table"><thead><tr>{['Mã HS','Họ tên','Ngày sinh','Lớp','SĐT','SĐT phụ huynh','Trạng thái',''].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
-   {filtered.map(r=><tr key={r.id}><td><b>{r.student_code||'—'}</b></td><td>{r.full_name}</td><td>{r.dob?new Date(r.dob+'T00:00:00').toLocaleDateString('vi-VN'):'—'}</td><td>{r.classes?.name||'Chưa xếp lớp'}</td><td>{r.phone||'—'}</td><td>{r.parent_phone||'—'}</td><td><span className={'pill '+(r.status==='active'?'green':r.status==='reserved'?'yellow':'blue')}>{r.status==='active'?'Đang học':r.status==='reserved'?'Bảo lưu':'Nghỉ'}</span></td><td><div style={{display:'flex',gap:5}}><button className="btn btn-light" title="Sửa" onClick={()=>{setEditing(r);setOpen(true)}}><Pencil size={15}/></button><button className="btn btn-light" title="Xóa" onClick={()=>remove(r.id)}><Trash2 size={15}/></button></div></td></tr>)}
-   {filtered.length===0&&<tr><td colSpan={8} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có học viên.</td></tr>}</tbody></table></div>
- </div>{open&&<StudentModal row={editing} classes={classes} close={()=>setOpen(false)} saved={()=>{setOpen(false);load()}/>}</>;
+   {open&&
+     <StudentModal
+       row={editing}
+       classes={classes}
+       close={()=>setOpen(false)}
+       saved={()=>{setOpen(false);load()}}
+     />
+   }
+ </>;
 }
 
 function StudentModal({row,classes,close,saved}:{row:StudentRow|null;classes:{id:string;name:string;level:string|null}[];close:()=>void;saved:()=>void}){
- const client=supabase(); const [form,setForm]=useState({student_code:row?.student_code||'',full_name:row?.full_name||'',dob:row?.dob||'',phone:row?.phone||'',parent_phone:row?.parent_phone||'',email:row?.email||'',class_id:row?.class_id||'',enroll_date:row?.enroll_date||new Date().toISOString().slice(0,10),status:row?.status||'active',notes:row?.notes||''}); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+ const client=supabase(); const [form,setForm]=useState({student_code:row?.student_code||'',full_name:row?.full_name||'',dob:row?.dob||'',phone:row?.phone||'',parent_phone:row?.parent_phone||'',email:row?.email||'',class_id:row?.class_id||'',enroll_date:row?.enroll_date||new Date().toISOString().slice(0,10),status:row?.status||'active',notes:row?.notes||''}); const [busy,setBusy]=useState(false);const [error,setError]=useState('');
  const set=(k:string,v:string)=>setForm(f=>({...f,[k]:v}));
  const save=async()=>{if(!form.full_name.trim()){setError('Vui lòng nhập họ tên học viên.');return}setBusy(true);setError(''); const payload={student_code:form.student_code.trim()||null,full_name:form.full_name.trim(),dob:form.dob||null,phone:form.phone.trim()||null,parent_phone:form.parent_phone.trim()||null,email:form.email.trim()||null,class_id:form.class_id||null,enroll_date:form.enroll_date||null,status:form.status,notes:form.notes.trim()||null}; const res=row?await client.from('students').update(payload).eq('id',row.id):await client.from('students').insert(payload); if(res.error)setError(res.error.message);else saved();setBusy(false)};
  return <div className="modal-overlay"><div className="card modal"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2>{row?'Sửa học viên':'Thêm học viên'}</h2><button className="btn btn-light" onClick={close}><X/></button></div><div className="form-grid">
- <label>Mã học viên<input className="input" value={form.student_code} onChange={e=>set('student_code',e.target.value)} placeholder="HS011"/></label>
- <label>Họ tên *<input className="input" value={form.full_name} onChange={e=>set('full_name',e.target.value)} placeholder="Nguyễn Văn A"/></label>
- <label>Ngày sinh<input className="input" type="date" value={form.dob} onChange={e=>set('dob',e.target.value)}/></label>
- <label>Ngày nhập học<input className="input" type="date" value={form.enroll_date} onChange={e=>set('enroll_date',e.target.value)}/></label>
- <label>Số điện thoại<input className="input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="09..."/></label>
- <label>SĐT phụ huynh<input className="input" value={form.parent_phone} onChange={e=>set('parent_phone',e.target.value)} placeholder="09..."/></label>
- <label>Email<input className="input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="email@example.com"/></label>
- <label>Lớp học<select className="input" value={form.class_id} onChange={e=>set('class_id',e.target.value)}><option value="">Chưa xếp lớp</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}</select></label>
- <label>Trạng thái<select className="input" value={form.status} onChange={e=>set('status',e.target.value)}><option value="active">Đang học</option><option value="reserved">Bảo lưu</option><option value="inactive">Nghỉ</option></select></label>
- <label style={{gridColumn:'1/-1'}}>Ghi chú<textarea className="input" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Ghi chú về học viên..."/></label>
- </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu học viên'}</button></div></div>
+   <label>Mã học viên<input className="input" value={form.student_code} onChange={e=>set('student_code',e.target.value)} placeholder="HS011"/></label>
+   <label>Họ tên *<input className="input" value={form.full_name} onChange={e=>set('full_name',e.target.value)} placeholder="Nguyễn Văn A"/></label>
+   <label>Ngày sinh<input className="input" type="date" value={form.dob} onChange={e=>set('dob',e.target.value)}/></label>
+   <label>Ngày nhập học<input className="input" type="date" value={form.enroll_date} onChange={e=>set('enroll_date',e.target.value)}/></label>
+   <label>Số điện thoại<input className="input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="09..."/></label>
+   <label>SĐT phụ huynh<input className="input" value={form.parent_phone} onChange={e=>set('parent_phone',e.target.value)} placeholder="09..."/></label>
+   <label>Email<input className="input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="email@example.com"/></label>
+   <label>Lớp học<select className="input" value={form.class_id} onChange={e=>set('class_id',e.target.value)}><option value="">Chưa xếp lớp</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}</select></label>
+   <label>Trạng thái<select className="input" value={form.status} onChange={e=>set('status',e.target.value)}><option value="active">Đang học</option><option value="reserved">Bảo lưu</option><option value="inactive">Nghỉ</option></select></label>
+   <label style={{gridColumn:'1/-1'}}>Ghi chú<textarea className="input" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Ghi chú về học viên..."/></label>
+   </div>{error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}<button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu học viên'}</button></div></div>
 }
+
 function Schedule(){return <div className="card" style={{padding:20}}><h3>Thời khóa biểu</h3><p style={{color:'#667085'}}>Lịch học sẽ lấy từ classes và schedules.</p></div>}
 function Attendance(){return <div className="card" style={{padding:20}}><h3>Điểm danh</h3><p style={{color:'#667085'}}>Điểm danh sẽ lưu vào bảng attendance.</p></div>}
 function Fees(){return <div className="card" style={{padding:20}}><h3>Học phí</h3><p style={{color:'#667085'}}>Học phí sẽ lưu vào bảng fees.</p></div>}
