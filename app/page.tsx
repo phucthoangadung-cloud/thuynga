@@ -16,13 +16,71 @@ export default function Home(){
   useEffect(()=>{client.auth.getSession().then(({data})=>{setSession(data.session);setLoadingAuth(false)}); const {data:{subscription}}=client.auth.onAuthStateChange((_e,s)=>setSession(s)); return ()=>subscription.unsubscribe()},[]);
   if(loadingAuth) return <div style={{minHeight:'100vh',display:'grid',placeItems:'center'}}>Đang tải...</div>;
   if(!session) return <Login/>;
-  return <div className="desktop-grid" style={{display:'grid',gridTemplateColumns:'250px 1fr',minHeight:'100vh'}}>
+  return <>
+    <style>{`
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
+      body{background:#f5f7fb}
+      .desktop-grid{width:100%;min-width:0}
+      .sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;background:#101828;color:#fff}
+      .navitem{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:9px;margin:3px 0;cursor:pointer;color:#e5e7eb}
+      .navitem.active{background:#2563eb;color:#fff}
+      .mobilebar{display:none}
+      .content{width:100%;min-width:0}
+      .card{max-width:100%;min-width:0}
+      .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+      .table{width:100%;min-width:760px;border-collapse:collapse}
+      .input{max-width:100%}
+      .modal-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(16,24,40,.55);overflow:auto}
+      .modal{width:min(680px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px}
+      .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+      .form-grid label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#344054}
+      @media (max-width: 1100px){
+        .desktop-grid{grid-template-columns:210px 1fr!important}
+        .content{padding:22px!important}
+        .stats{grid-template-columns:repeat(2,1fr)!important}
+      }
+      @media (max-width: 820px) and (orientation: landscape){
+        .desktop-grid{grid-template-columns:190px 1fr!important}
+        .sidebar{display:none!important}
+        .mobilebar{display:flex!important;position:sticky;top:0;z-index:900;height:58px;padding:8px 12px;align-items:center;gap:10px;background:#101828;color:#fff}
+        .mobilebar>.btn{display:flex!important;align-items:center;justify-content:center}
+        .mobilemenu{position:absolute;left:8px;top:58px;width:245px;max-height:calc(100vh - 66px);overflow:auto;padding:10px;background:#101828;border-radius:0 0 12px 12px;box-shadow:0 12px 30px rgba(0,0,0,.25)}
+        .content{padding:16px!important;max-width:none!important}
+        .form-grid{grid-template-columns:1fr 1fr}
+        .table{min-width:720px}
+      }
+      @media (max-width: 820px) and (orientation: portrait){
+        .desktop-grid{display:block!important;min-height:100vh}
+        .sidebar{display:none!important}
+        .mobilebar{display:flex!important;position:sticky;top:0;z-index:900;height:58px;padding:8px 12px;align-items:center;gap:10px;background:#101828;color:#fff}
+        .mobilebar>.btn{display:flex!important;align-items:center;justify-content:center}
+        .mobilemenu{position:absolute;left:8px;right:8px;top:58px;max-height:calc(100vh - 66px);overflow:auto;padding:10px;background:#101828;border-radius:0 0 12px 12px;box-shadow:0 12px 30px rgba(0,0,0,.25)}
+        .content{padding:14px!important;max-width:none!important}
+        .content>div:first-child{align-items:flex-start!important}
+        .content h1{font-size:24px!important}
+        .stats{grid-template-columns:1fr 1fr!important}
+        .form-grid{grid-template-columns:1fr!important}
+        .modal-overlay{padding:8px}
+        .modal{max-height:calc(100vh - 16px);padding:16px}
+        .table-wrap{margin-right:-2px}
+        .table{min-width:720px}
+        .btn{white-space:nowrap}
+      }
+      @media (max-width: 480px) and (orientation: portrait){
+        .stats{grid-template-columns:1fr!important}
+        .content{padding:10px!important}
+        .content>div:first-child{flex-wrap:wrap!important}
+      }
+    `}</style>
+    <div className="desktop-grid" style={{display:'grid',gridTemplateColumns:'250px 1fr',minHeight:'100vh'}}>
     <aside className="sidebar" style={{padding:18}}><div style={{fontSize:20,fontWeight:800,marginBottom:28}}>🎓 Thuy Nga Language Center</div>{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div style={{marginTop:30,color:'#94a3b8',fontSize:12}}>OFFLINE CENTER • V1</div><button className="btn btn-light" style={{marginTop:18,width:'100%'}} onClick={()=>client.auth.signOut()}><LogOut size={15}/> Đăng xuất</button></aside>
     <main><div className="mobilebar"><button className="btn btn-light" onClick={()=>setMobile(!mobile)}><Menu/></button><b>Thuy Nga Language Center</b>{mobile&&<div className="mobilemenu">{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div className="navitem" onClick={()=>client.auth.signOut()}><LogOut size={18}/> Đăng xuất</div></div>}</div>
       <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{(tab==='Lớp học'||tab==='Lịch học'||tab==='Giáo viên')&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent(tab==='Lớp học'?'open-class-modal':tab==='Lịch học'?'open-schedule-modal':'open-teacher-modal'))}><Plus size={16}/> {tab==='Lớp học'?'Thêm lớp':tab==='Lịch học'?'Thêm lịch':'Thêm giáo viên'}</button>}</div>
         {tab==='Dashboard'&&<Dashboard/>}{tab==='Lớp học'&&<Classes/>}{tab==='Học viên'&&<Students/>}{tab==='Lịch học'&&<Schedule/>}{tab==='Điểm danh'&&<Attendance/>}{tab==='Học phí'&&<Fees/>}{tab==='Giáo viên'&&<Teachers/>}{tab==='Báo cáo'&&<Reports/>}
       </div></main>
   </div>
+  </>
 }
 
 function Login(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState(''); const client=supabase();
