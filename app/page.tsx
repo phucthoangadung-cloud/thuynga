@@ -4,7 +4,7 @@ import type { ComponentType } from 'react';
 import { LayoutDashboard, BookOpen, Users, CalendarDays, ClipboardCheck, Wallet, UserRound, BarChart3, Menu, Plus, Search, LogOut, Pencil, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-type Teacher={id:string;full_name:string};
+type Teacher={id:string;full_name:string;phone?:string|null;email?:string|null;status?:string|null;created_at?:string|null};
 type Room={id:string;name:string;capacity:number};
 type ClassRow={id:string;name:string;level:string|null;teacher_id:string|null;room_id:string|null;start_date:string|null;end_date:string|null;schedule_text:string|null;tuition:number;capacity:number;status:'active'|'upcoming'|'finished';teachers?:Teacher|null;rooms?:Room|null};
 
@@ -19,7 +19,7 @@ export default function Home(){
   return <div className="desktop-grid" style={{display:'grid',gridTemplateColumns:'250px 1fr',minHeight:'100vh'}}>
     <aside className="sidebar" style={{padding:18}}><div style={{fontSize:20,fontWeight:800,marginBottom:28}}>🎓 Language Center</div>{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div style={{marginTop:30,color:'#94a3b8',fontSize:12}}>OFFLINE CENTER • V1</div><button className="btn btn-light" style={{marginTop:18,width:'100%'}} onClick={()=>client.auth.signOut()}><LogOut size={15}/> Đăng xuất</button></aside>
     <main><div className="mobilebar"><button className="btn btn-light" onClick={()=>setMobile(!mobile)}><Menu/></button><b>Language Center</b>{mobile&&<div className="mobilemenu">{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div className="navitem" onClick={()=>client.auth.signOut()}><LogOut size={18}/> Đăng xuất</div></div>}</div>
-      <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{(tab==='Lớp học'||tab==='Lịch học')&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent(tab==='Lớp học'?'open-class-modal':'open-schedule-modal'))}><Plus size={16}/> {tab==='Lớp học'?'Thêm lớp':'Thêm lịch'}</button>}</div>
+      <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{(tab==='Lớp học'||tab==='Lịch học'||tab==='Giáo viên')&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent(tab==='Lớp học'?'open-class-modal':tab==='Lịch học'?'open-schedule-modal':'open-teacher-modal'))}><Plus size={16}/> {tab==='Lớp học'?'Thêm lớp':tab==='Lịch học'?'Thêm lịch':'Thêm giáo viên'}</button>}</div>
         {tab==='Dashboard'&&<Dashboard/>}{tab==='Lớp học'&&<Classes/>}{tab==='Học viên'&&<Students/>}{tab==='Lịch học'&&<Schedule/>}{tab==='Điểm danh'&&<Attendance/>}{tab==='Học phí'&&<Fees/>}{tab==='Giáo viên'&&<Teachers/>}{tab==='Báo cáo'&&<Reports/>}
       </div></main>
   </div>
@@ -360,7 +360,81 @@ function Fees(){
   </div>
  </>;
 }
-function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
+function Teachers(){
+ const client=supabase();
+ const [rows,setRows]=useState<Teacher[]>([]);
+ const [q,setQ]=useState('');
+ const [open,setOpen]=useState(false);
+ const [editing,setEditing]=useState<Teacher|null>(null);
+ const [error,setError]=useState('');
+ const [classCounts,setClassCounts]=useState<Record<string,number>>({});
+ const load=async()=>{
+   const [{data,error:te},{data:classes,error:ce}]=await Promise.all([
+     client.from('teachers').select('id,full_name,phone,email,status,created_at').order('full_name'),
+     client.from('classes').select('teacher_id')
+   ]);
+   if(te)setError(te.message); else setRows((data||[]) as Teacher[]);
+   if(ce)setError(ce.message);
+   const counts:Record<string,number>={};
+   (classes||[]).forEach((r:any)=>{if(r.teacher_id)counts[r.teacher_id]=(counts[r.teacher_id]||0)+1});
+   setClassCounts(counts);
+ };
+ useEffect(()=>{load();const h=()=>{setEditing(null);setOpen(true)};window.addEventListener('open-teacher-modal',h);return()=>window.removeEventListener('open-teacher-modal',h)},[]);
+ const filtered=useMemo(()=>rows.filter(t=>`${t.full_name||''} ${t.phone||''} ${t.email||''} ${t.status||''}`.toLowerCase().includes(q.toLowerCase())),[rows,q]);
+ const remove=async(id:string)=>{
+   const count=classCounts[id]||0;
+   if(count>0){alert(`Không thể xóa giáo viên này vì đang được phân công ${count} lớp. Hãy chuyển giáo viên sang trạng thái Nghỉ trước.`);return;}
+   if(!confirm('Xóa giáo viên này?'))return;
+   const {error}=await client.from('teachers').delete().eq('id',id);
+   if(error)setError(error.message);else load();
+ };
+ return <>
+  <div className="card" style={{padding:20}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16}}>
+    <div><h3 style={{margin:'0 0 4px'}}>Quản lý giáo viên</h3><span style={{fontSize:13,color:'#667085'}}>Thêm, sửa, tìm kiếm và quản lý trạng thái giáo viên</span></div>
+    <div style={{position:'relative'}}><Search size={16} style={{position:'absolute',left:10,top:11,color:'#98a2b3'}}/><input className="input" style={{width:280,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm tên, SĐT, email..."/></div>
+   </div>
+   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:12}}>{error}</div>}
+   <div className="stats" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:10,padding:14}}><div style={{fontSize:24,fontWeight:800}}>{rows.length}</div><div style={{fontSize:12,color:'#667085'}}>Tổng giáo viên</div></div>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:10,padding:14}}><div style={{fontSize:24,fontWeight:800}}>{rows.filter(t=>t.status==='active').length}</div><div style={{fontSize:12,color:'#667085'}}>Đang hoạt động</div></div>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:10,padding:14}}><div style={{fontSize:24,fontWeight:800}}>{Object.values(classCounts).reduce((a,b)=>a+b,0)}</div><div style={{fontSize:12,color:'#667085'}}>Lớp đang phân công</div></div>
+   </div>
+   <div className="table-wrap"><table className="table"><thead><tr><th>Họ tên</th><th>Số điện thoại</th><th>Email</th><th>Số lớp</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+    {filtered.map(t=><tr key={t.id}><td><b>{t.full_name}</b></td><td>{t.phone||'—'}</td><td>{t.email||'—'}</td><td>{classCounts[t.id]||0}</td><td><span className={'pill '+(t.status==='active'?'green':'blue')}>{t.status==='active'?'Đang hoạt động':'Nghỉ'}</span></td><td><div style={{display:'flex',gap:5}}><button className="btn btn-light" title="Sửa" onClick={()=>{setEditing(t);setOpen(true)}}><Pencil size={15}/></button><button className="btn btn-light" title="Xóa" onClick={()=>remove(t.id)}><Trash2 size={15}/></button></div></td></tr>)}
+    {!filtered.length&&<tr><td colSpan={6} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có giáo viên phù hợp.</td></tr>}
+   </tbody></table></div>
+  </div>
+  {open&&<TeacherModal row={editing} close={()=>setOpen(false)} saved={()=>{setOpen(false);load()}}/>}
+ </>;
+}
+
+function TeacherModal({row,close,saved}:{row:Teacher|null;close:()=>void;saved:()=>void}){
+ const client=supabase();
+ const [form,setForm]=useState({full_name:row?.full_name||'',phone:row?.phone||'',email:row?.email||'',status:row?.status||'active'});
+ const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+ const set=(k:string,v:string)=>setForm(f=>({...f,[k]:v}));
+ const save=async()=>{
+   if(!form.full_name.trim()){setError('Vui lòng nhập họ tên giáo viên.');return}
+   setBusy(true);setError('');
+   const payload={full_name:form.full_name.trim(),phone:form.phone.trim()||null,email:form.email.trim()||null,status:form.status};
+   const res=row?await client.from('teachers').update(payload).eq('id',row.id):await client.from('teachers').insert(payload);
+   if(res.error)setError(res.error.message);else saved();
+   setBusy(false);
+ };
+ return <div className="modal-overlay"><div className="card modal">
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h2>{row?'Sửa giáo viên':'Thêm giáo viên'}</h2><button className="btn btn-light" onClick={close}><X/></button></div>
+   <div className="form-grid">
+    <label>Họ tên *<input className="input" value={form.full_name} onChange={e=>set('full_name',e.target.value)} placeholder="Nguyễn Văn A"/></label>
+    <label>Số điện thoại<input className="input" value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="09..."/></label>
+    <label>Email<input className="input" type="email" value={form.email} onChange={e=>set('email',e.target.value)} placeholder="teacher@example.com"/></label>
+    <label>Trạng thái<select className="input" value={form.status} onChange={e=>set('status',e.target.value)}><option value="active">Đang hoạt động</option><option value="inactive">Nghỉ</option></select></label>
+   </div>
+   {error&&<div style={{color:'#b42318',marginTop:10}}>{error}</div>}
+   <button className="btn btn-primary" style={{width:'100%',marginTop:16}} disabled={busy} onClick={save}>{busy?'Đang lưu...':'Lưu giáo viên'}</button>
+  </div></div>;
+}
+
 function Reports(){
  const client=supabase();
  const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
