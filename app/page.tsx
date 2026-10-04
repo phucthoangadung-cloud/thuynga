@@ -244,6 +244,121 @@ function Attendance(){
  </div>
  </>;
 }
-function Fees(){return <div className="card" style={{padding:20}}><h3>Học phí</h3><p style={{color:'#667085'}}>Học phí sẽ lưu vào bảng fees.</p></div>}
+type FeeRow={
+ id?:string;
+ student_id:string;
+ class_id:string;
+ month:string;
+ amount_due:number;
+ amount_paid:number;
+ paid_at:string|null;
+ status:string;
+ note:string|null;
+ students?:{student_code:string|null;full_name:string}|null;
+ classes?:{name:string;tuition:number}|null;
+};
+
+function Fees(){
+ const client=supabase();
+ const [classes,setClasses]=useState<{id:string;name:string;level:string|null;tuition:number}[]>([]);
+ const [classId,setClassId]=useState('all');
+ const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
+ const [rows,setRows]=useState<FeeRow[]>([]);
+ const [q,setQ]=useState('');
+ const [loading,setLoading]=useState(false);
+ const [saving,setSaving]=useState(false);
+ const [error,setError]=useState('');
+ const [saved,setSaved]=useState('');
+
+ const load=async()=>{
+   if(!month)return;
+   setLoading(true);setError('');
+   const [{data:c,error:ce},{data:f,error:fe}]=await Promise.all([
+     client.from('classes').select('id,name,level,tuition').order('name'),
+     client.from('fees').select('id,student_id,class_id,month,amount_due,amount_paid,paid_at,status,note,students(student_code,full_name),classes(name,tuition)').eq('month',month+'-01').order('created_at')
+   ]);
+   if(ce)setError(ce.message);
+   if(fe)setError(fe.message);
+   setClasses((c||[]) as any);
+   setRows((f||[]) as any);
+   setLoading(false);
+ };
+
+ const ensureRows=async()=>{
+   if(!month)return;
+   setLoading(true);setError('');
+   const [{data:cls,error:ce},{data:existing,error:fe}]=await Promise.all([
+     client.from('classes').select('id,name,level,tuition').eq('status','active').order('name'),
+     client.from('fees').select('id,student_id,class_id,month,amount_due,amount_paid,paid_at,status,note,students(student_code,full_name),classes(name,tuition)').eq('month',month+'-01').order('created_at')
+   ]);
+   if(ce||fe){setError(ce?.message||fe?.message||'Không tải được dữ liệu.');setLoading(false);return;}
+   setClasses((cls||[]) as any);
+   const existingMap=new Map((existing||[]).map((r:any)=>[r.student_id,r]));
+   const targetStudentsQuery=classId==='all'
+     ? client.from('students').select('id,student_code,full_name,class_id,classes(id,name,tuition)').eq('status','active').order('student_code')
+     : client.from('students').select('id,student_code,full_name,class_id,classes(id,name,tuition)').eq('status','active').eq('class_id',classId).order('student_code');
+   const {data:students,error:se}=await targetStudentsQuery;
+   if(se){setError(se.message);setLoading(false);return;}
+   const next=(students||[]).map((s:any)=>existingMap.get(s.id)||({student_id:s.id,class_id:s.class_id,month:month+'-01',amount_due:Number(s.classes?.tuition||0),amount_paid:0,paid_at:null,status:'unpaid',note:null,students:{student_code:s.student_code,full_name:s.full_name},classes:{name:s.classes?.name||'',tuition:Number(s.classes?.tuition||0)}}));
+   setRows(next as any);setLoading(false);
+ };
+
+ useEffect(()=>{load()},[month]);
+ useEffect(()=>{ensureRows()},[classId,month]);
+
+ const update=(id:string,key:string,value:any)=>setRows(rs=>rs.map(r=>r.student_id===id?({...r,[key]:value}):r));
+ const statusOf=(due:number,paid:number)=>paid<=0?'unpaid':paid>=due?'paid':'partial';
+ const save=async()=>{
+   if(!rows.length)return;
+   setSaving(true);setError('');setSaved('');
+   const payload=rows.map(r=>{
+     const due=Math.max(0,Number(r.amount_due||0));
+     const paid=Math.max(0,Math.min(Number(r.amount_paid||0),due));
+     const status=statusOf(due,paid);
+     return {student_id:r.student_id,class_id:r.class_id,month:month+'-01',amount_due:due,amount_paid:paid,paid_at:paid>0?(r.paid_at||new Date().toISOString().slice(0,10)):null,status,note:r.note?.trim()||null};
+   });
+   const {error}=await client.from('fees').upsert(payload,{onConflict:'student_id,month'});
+   if(error)setError(error.message);else{setSaved('Đã lưu học phí tháng '+month+'.');await load();await ensureRows()}
+   setSaving(false);
+ };
+
+ const filtered=useMemo(()=>rows.filter(r=>`${r.students?.student_code||''} ${r.students?.full_name||''} ${r.classes?.name||''}`.toLowerCase().includes(q.toLowerCase())),[rows,q]);
+ const totals=useMemo(()=>filtered.reduce((a,r)=>{a.due+=Number(r.amount_due||0);a.paid+=Number(r.amount_paid||0);return a}, {due:0,paid:0}),[filtered]);
+ const unpaid=totals.due-totals.paid;
+ const counts=useMemo(()=>({paid:filtered.filter(r=>Number(r.amount_paid||0)>=Number(r.amount_due||0)&&Number(r.amount_due||0)>0).length,partial:filtered.filter(r=>Number(r.amount_paid||0)>0&&Number(r.amount_paid||0)<Number(r.amount_due||0)).length,unpaid:filtered.filter(r=>Number(r.amount_paid||0)<=0).length}),[filtered]);
+ const money=(n:number)=>Number(n||0).toLocaleString('vi-VN')+'đ';
+ return <>
+  <div className="card" style={{padding:20}}>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'end',gap:12,flexWrap:'wrap',marginBottom:16}}>
+    <div><h3 style={{margin:'0 0 5px'}}>Học phí</h3><span style={{fontSize:13,color:'#667085'}}>Quản lý học phí theo tháng và lớp</span></div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <select className="input" value={classId} onChange={e=>setClassId(e.target.value)} style={{minWidth:220}}><option value="all">Tất cả lớp</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}{c.level?` - ${c.level}`:''}</option>)}</select>
+      <input className="input" type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
+    </div>
+   </div>
+   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:10,borderRadius:8,marginBottom:10}}>{error}</div>}
+   {saved&&<div style={{background:'#ecfdf3',color:'#067647',padding:10,borderRadius:8,marginBottom:10}}>{saved}</div>}
+   <div className="stats" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+    {[[money(totals.due),'Tổng phải thu'],[money(totals.paid),'Đã thu'],[money(unpaid),'Còn nợ'],[filtered.length,`Học viên • ${counts.paid} đã đóng`]].map(([v,l])=><div key={String(l)} style={{border:'1px solid #e4e7ec',borderRadius:10,padding:14}}><div style={{fontSize:20,fontWeight:800}}>{v}</div><div style={{fontSize:12,color:'#667085',marginTop:4}}>{l}</div></div>)}
+   </div>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}}>
+     <div style={{display:'flex',gap:8,fontSize:13,color:'#667085'}}>Đã đóng: {counts.paid} • Đóng một phần: {counts.partial} • Chưa đóng: {counts.unpaid}</div>
+     <div style={{position:'relative'}}><Search size={16} style={{position:'absolute',left:10,top:11,color:'#98a2b3'}}/><input className="input" style={{width:260,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm mã, tên, lớp..."/></div>
+   </div>
+   <div className="table-wrap"><table className="table"><thead><tr><th>Mã HS</th><th>Họ tên</th><th>Lớp</th><th>Phải thu</th><th>Đã thu</th><th>Còn nợ</th><th>Ngày đóng</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead><tbody>
+    {loading&&<tr><td colSpan={9} style={{textAlign:'center',padding:30}}>Đang tải...</td></tr>}
+    {!loading&&filtered.map(r=>{const due=Number(r.amount_due||0),paid=Number(r.amount_paid||0),debt=Math.max(0,due-paid),st=statusOf(due,paid);return <tr key={r.student_id}>
+      <td><b>{r.students?.student_code||'—'}</b></td><td>{r.students?.full_name||'—'}</td><td>{r.classes?.name||'—'}</td><td>{money(due)}</td>
+      <td><input className="input" type="number" min="0" max={due} value={paid} onChange={e=>update(r.student_id,'amount_paid',Number(e.target.value||0))} style={{width:120}}/></td>
+      <td><b>{money(debt)}</b></td><td><input className="input" type="date" value={r.paid_at||''} onChange={e=>update(r.student_id,'paid_at',e.target.value||null)} style={{width:135}}/></td>
+      <td><span className={'pill '+(st==='paid'?'green':st==='partial'?'yellow':'blue')}>{st==='paid'?'Đã đóng':st==='partial'?'Đóng một phần':'Chưa đóng'}</span></td>
+      <td><input className="input" value={r.note||''} onChange={e=>update(r.student_id,'note',e.target.value)} placeholder="Ghi chú..."/></td>
+    </tr>})}
+    {!loading&&!filtered.length&&<tr><td colSpan={9} style={{textAlign:'center',padding:30,color:'#667085'}}>Chưa có học viên trong lựa chọn này.</td></tr>}
+   </tbody></table></div>
+   <button className="btn btn-primary" style={{marginTop:16}} disabled={saving||loading||!filtered.length} onClick={save}>{saving?'Đang lưu...':'Lưu học phí tháng '+month}</button>
+  </div>
+ </>;
+}
 function Teachers(){const client=supabase();const [rows,setRows]=useState<Teacher[]>([]);useEffect(()=>{client.from('teachers').select('id,full_name').order('full_name').then(({data})=>setRows(data||[]))},[]);return <div className="card" style={{padding:20}}><h3>Giáo viên</h3>{rows.length?<ul>{rows.map(t=><li key={t.id}>{t.full_name}</li>)}</ul>:<p style={{color:'#667085'}}>Chưa có giáo viên.</p>}</div>}
 function Reports(){return <div className="card" style={{padding:20}}><h3>Báo cáo</h3><p style={{color:'#667085'}}>Báo cáo sẽ lấy số liệu trực tiếp từ Supabase.</p></div>}
