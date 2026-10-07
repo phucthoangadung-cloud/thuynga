@@ -167,18 +167,36 @@ function ImportExport(){
     } as any;
     const keys=allowed[module] as string[];
     const payload=rows.map((r:any)=>{
-      const o:any={};keys.forEach(k=>{if(Object.prototype.hasOwnProperty.call(r,k))o[k]=r[k]});
-      if(o.id==='')delete o.id;
+      const o:any={};
+      keys.forEach(k=>{
+        if(Object.prototype.hasOwnProperty.call(r,k) && r[k]!=='' && r[k]!==undefined) o[k]=r[k];
+      });
+      if(typeof o.id==='string' && !o.id.trim()) delete o.id;
       return o;
     }).filter((r:any)=>Object.keys(r).length>0);
     if(!payload.length)throw new Error('Không tìm thấy cột dữ liệu hợp lệ trong file.');
+
     const table=modules.find(x=>x.key===module)!.table;
-    const hasIds=payload.every((r:any)=>r.id);
-    let res;
-    if(hasIds) res=await client.from(table).upsert(payload,{onConflict:'id'});
-    else res=await client.from(table).insert(payload);
-    if(res.error)throw res.error;
-    setMessage(`Đã nhập ${payload.length} dòng vào ${modules.find(x=>x.key===module)!.label}.`);
+    const withIds=payload.filter((r:any)=>r.id);
+    const withoutIds=payload.filter((r:any)=>!r.id);
+
+    // Có ID -> cập nhật/upsert theo ID. Không có ID -> INSERT để Supabase tự sinh UUID.
+    if(withIds.length){
+      const updateRes=await client.from(table).upsert(withIds,{onConflict:'id'});
+      if(updateRes.error)throw updateRes.error;
+    }
+
+    let createdIds:any[]=[];
+    if(withoutIds.length){
+      const insertRes=await client.from(table).insert(withoutIds).select('id');
+      if(insertRes.error)throw insertRes.error;
+      createdIds=insertRes.data||[];
+    }
+
+    const label=modules.find(x=>x.key===module)!.label;
+    const created=createdIds.length;
+    const updated=withIds.length;
+    setMessage(`Import ${label} thành công: ${updated} dòng cập nhật theo ID + ${created} dòng mới. ${created ? `Supabase đã tự tạo ${created} ID mới.` : 'Không có dòng mới.'}`);
    }catch(e:any){setError(e?.message||'Nhập Excel thất bại.')}finally{setBusy(false);e.target.value='';}
  };
  return <>
@@ -198,14 +216,14 @@ function ImportExport(){
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}><button className="btn btn-light" disabled={busy} onClick={exportModule}><Download size={16}/> Xuất</button><button className="btn btn-light" disabled={busy} onClick={template}><FileSpreadsheet size={16}/> Tải mẫu</button></div>
     </div>
     <div style={{border:'1px solid #e4e7ec',borderRadius:12,padding:18}}>
-      <h4 style={{marginTop:0}}>📥 Nhập Excel</h4><p style={{fontSize:13,color:'#667085'}}>Chọn đúng danh mục và nhập file .xlsx/.xls/.csv. File có cột <b>id</b> sẽ cập nhật bản ghi hiện có.</p>
+      <h4 style={{marginTop:0}}>📥 Nhập Excel</h4><p style={{fontSize:13,color:'#667085'}}>Chọn đúng danh mục và nhập file .xlsx/.xls/.csv. Có <b>id</b> → cập nhật bản ghi; để trống <b>id</b> → tạo học viên/bản ghi mới và Supabase tự sinh UUID.</p>
       <select className="input" value={module} onChange={e=>setModule(e.target.value)}>{modules.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select>
       <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={importFile}/>
       <button className="btn btn-primary" style={{marginTop:10}} disabled={busy} onClick={()=>inputRef.current?.click()}><Upload size={16}/> Chọn file Excel</button>
     </div>
    </div>
    <div style={{marginTop:20,padding:14,background:'#f8fafc',borderRadius:10,fontSize:13,color:'#475467'}}>
-    <b>Lưu ý:</b> Nên <b>Xuất toàn bộ Excel</b> trước khi import để có bản sao lưu. Khi import có cột <b>id</b>, hệ thống sẽ cập nhật theo ID; nếu không có ID, hệ thống sẽ thêm bản ghi mới. Với dữ liệu có quan hệ (lớp, học viên, điểm danh, học phí), nên giữ nguyên các ID trong file xuất ra.
+    <b>Lưu ý:</b> Nên <b>Xuất toàn bộ Excel</b> trước khi import. Có <b>id</b> → hệ thống cập nhật theo ID; để trống <b>id</b> → hệ thống INSERT bản ghi mới và Supabase tự tạo UUID. Có thể trộn dòng có ID và không có ID trong cùng một file. Với dữ liệu có quan hệ (lớp, học viên, điểm danh, học phí), nên giữ nguyên các ID liên quan trong file.
    </div>
   </div>
  </>;
