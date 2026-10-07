@@ -129,7 +129,7 @@ function ImportExport(){
     const m=modules.find(x=>x.key===module)!;
     const {data,error}=await client.from(m.table).select('*');
     if(error)throw error;
-    const ws=XLSX.utils.json_to_sheet((data||[]).length?data||:[{}]);
+    const ws=XLSX.utils.json_to_sheet((data||[]).length ? data : [{}]);
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,m.label.slice(0,31));
     XLSX.writeFile(wb,`ThuyNga_${module}_${new Date().toISOString().slice(0,10)}.xlsx`);
     setMessage(`Đã xuất dữ liệu ${m.label}.`);
