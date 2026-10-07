@@ -1,14 +1,15 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import type { ComponentType } from 'react';
-import { LayoutDashboard, BookOpen, Users, CalendarDays, ClipboardCheck, Wallet, UserRound, BarChart3, Menu, Plus, Search, LogOut, Pencil, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentType, ChangeEvent } from 'react';
+import { LayoutDashboard, BookOpen, Users, CalendarDays, ClipboardCheck, Wallet, UserRound, BarChart3, FileSpreadsheet, Menu, Plus, Search, LogOut, Pencil, Trash2, X, Download, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import * as XLSX from 'xlsx';
 
 type Teacher={id:string;full_name:string;phone?:string|null;email?:string|null;status?:string|null;created_at?:string|null};
 type Room={id:string;name:string;capacity:number};
 type ClassRow={id:string;class_code:string|null;name:string;level:string|null;teacher_id:string|null;room_id:string|null;start_date:string|null;end_date:string|null;schedule_text:string|null;tuition:number;capacity:number;status:'active'|'upcoming'|'finished';teachers?:Teacher|null;rooms?:Room|null};
 
-const nav: Array<[string, ComponentType<any>]> = [['Dashboard',LayoutDashboard],['Lớp học',BookOpen],['Học viên',Users],['Lịch học',CalendarDays],['Điểm danh',ClipboardCheck],['Học phí',Wallet],['Giáo viên',UserRound],['Báo cáo',BarChart3]];
+const nav: Array<[string, ComponentType<any>]> = [['Dashboard',LayoutDashboard],['Lớp học',BookOpen],['Học viên',Users],['Lịch học',CalendarDays],['Điểm danh',ClipboardCheck],['Học phí',Wallet],['Giáo viên',UserRound],['Báo cáo',BarChart3],['Import / Export',FileSpreadsheet]];
 
 export default function Home(){
   const [session,setSession]=useState<any>(null); const [loadingAuth,setLoadingAuth]=useState(true); const [tab,setTab]=useState('Dashboard'); const [mobile,setMobile]=useState(false);
@@ -77,10 +78,137 @@ export default function Home(){
     <aside className="sidebar" style={{padding:18}}><div style={{fontSize:20,fontWeight:800,marginBottom:28}}>🎓 Thuy Nga Language Center</div>{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div style={{marginTop:30,color:'#94a3b8',fontSize:12}}>OFFLINE CENTER • V1</div><button className="btn btn-light" style={{marginTop:18,width:'100%'}} onClick={()=>client.auth.signOut()}><LogOut size={15}/> Đăng xuất</button></aside>
     <main><div className="mobilebar"><button className="btn btn-light" onClick={()=>setMobile(!mobile)}><Menu/></button><b>Thuy Nga Language Center</b>{mobile&&<div className="mobilemenu">{nav.map(([n,I])=><div key={n} className={'navitem '+(tab===n?'active':'')} onClick={()=>{setTab(n);setMobile(false)}}><I size={18}/>{n}</div>)}<div className="navitem" onClick={()=>client.auth.signOut()}><LogOut size={18}/> Đăng xuất</div></div>}</div>
       <div className="content" style={{padding:28,maxWidth:1400,margin:'auto'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}><div><div style={{fontSize:13,color:'#667085'}}>QUẢN LÝ TRUNG TÂM</div><h1 style={{fontSize:28,margin:'5px 0'}}>{tab}</h1></div>{(tab==='Lớp học'||tab==='Lịch học'||tab==='Giáo viên')&&<button className="btn btn-primary" onClick={()=>window.dispatchEvent(new CustomEvent(tab==='Lớp học'?'open-class-modal':tab==='Lịch học'?'open-schedule-modal':'open-teacher-modal'))}><Plus size={16}/> {tab==='Lớp học'?'Thêm lớp':tab==='Lịch học'?'Thêm lịch':'Thêm giáo viên'}</button>}</div>
-        {tab==='Dashboard'&&<Dashboard/>}{tab==='Lớp học'&&<Classes/>}{tab==='Học viên'&&<Students/>}{tab==='Lịch học'&&<Schedule/>}{tab==='Điểm danh'&&<Attendance/>}{tab==='Học phí'&&<Fees/>}{tab==='Giáo viên'&&<Teachers/>}{tab==='Báo cáo'&&<Reports/>}
+        {tab==='Dashboard'&&<Dashboard/>}{tab==='Lớp học'&&<Classes/>}{tab==='Học viên'&&<Students/>}{tab==='Lịch học'&&<Schedule/>}{tab==='Điểm danh'&&<Attendance/>}{tab==='Học phí'&&<Fees/>}{tab==='Giáo viên'&&<Teachers/>}{tab==='Báo cáo'&&<Reports/>}{tab==='Import / Export'&&<ImportExport/>}
       </div></main>
   </div>
   </>
+}
+
+function ImportExport(){
+ const client=supabase();
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ const [error,setError]=useState('');
+ const [module,setModule]=useState('students');
+ const inputRef=useRef<HTMLInputElement>(null);
+ const modules=[
+  {key:'students',label:'Học viên',table:'students'},
+  {key:'classes',label:'Lớp học',table:'classes'},
+  {key:'teachers',label:'Giáo viên',table:'teachers'},
+  {key:'rooms',label:'Phòng học',table:'rooms'},
+  {key:'schedules',label:'Lịch học',table:'schedules'},
+  {key:'attendance',label:'Điểm danh',table:'attendance'},
+  {key:'fees',label:'Học phí',table:'fees'},
+ ];
+ const exportAll=async()=>{
+   setBusy(true);setError('');setMessage('');
+   try{
+    const wb=XLSX.utils.book_new();
+    const queries:any[]=[
+      ['Học viên','students','*'],['Lớp học','classes','*'],['Giáo viên','teachers','*'],['Phòng học','rooms','*'],
+      ['Lịch học','schedules','*'],['Điểm danh','attendance','*'],['Học phí','fees','*']
+    ];
+    for(const [sheet,table,cols] of queries){
+      const {data,error}=await client.from(table).select(cols);
+      if(error)throw new Error(`${sheet}: ${error.message}`);
+      const rows=(data||[]).map((r:any)=>{
+        const x={...r};
+        return x;
+      });
+      const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}]);
+      XLSX.utils.book_append_sheet(wb,ws,String(sheet).slice(0,31));
+    }
+    const stamp=new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb,`ThuyNga_Language_Center_${stamp}.xlsx`);
+    setMessage('Đã xuất toàn bộ dữ liệu ra Excel.');
+   }catch(e:any){setError(e?.message||'Xuất Excel thất bại.')}finally{setBusy(false)}
+ };
+ const exportModule=async()=>{
+   setBusy(true);setError('');setMessage('');
+   try{
+    const m=modules.find(x=>x.key===module)!;
+    const {data,error}=await client.from(m.table).select('*');
+    if(error)throw error;
+    const ws=XLSX.utils.json_to_sheet((data||[]).length?data||:[{}]);
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,m.label.slice(0,31));
+    XLSX.writeFile(wb,`ThuyNga_${module}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    setMessage(`Đã xuất dữ liệu ${m.label}.`);
+   }catch(e:any){setError(e?.message||'Xuất Excel thất bại.')}finally{setBusy(false)}
+ };
+ const template=()=>{
+   const headers:any={
+    students:[['id','student_code','full_name','dob','phone','parent_phone','email','class_id','enroll_date','status','notes']],
+    classes:[['id','class_code','name','level','teacher_id','room_id','start_date','end_date','schedule_text','tuition','capacity','status']],
+    teachers:[['id','full_name','phone','email','status']],
+    rooms:[['id','name','capacity']],
+    schedules:[['id','class_id','weekday','start_time','end_time','room_id','teacher_id','note','active']],
+    attendance:[['id','class_id','student_id','lesson_date','status','note']],
+    fees:[['id','student_id','class_id','month','amount_due','amount_paid','paid_at','status','note']],
+   };
+   const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(headers[module]);XLSX.utils.book_append_sheet(wb,ws,modules.find(x=>x.key===module)!.label.slice(0,31));XLSX.writeFile(wb,`Mau_import_${module}.xlsx`);setMessage('Đã tải file mẫu Excel.');
+ };
+ const importFile=async(e:ChangeEvent<HTMLInputElement>)=>{
+   const file=e.target.files?.[0]; if(!file)return;
+   setBusy(true);setError('');setMessage('');
+   try{
+    const buffer=await file.arrayBuffer();
+    const wb=XLSX.read(buffer,{type:'array',cellDates:false});
+    const first=wb.SheetNames[0];
+    const rows=XLSX.utils.sheet_to_json<any>(wb.Sheets[first],{defval:null,raw:true});
+    if(!rows.length)throw new Error('File Excel không có dữ liệu.');
+    const allowed={
+      students:['id','student_code','full_name','dob','phone','parent_phone','email','class_id','enroll_date','status','notes'],
+      classes:['id','class_code','name','level','teacher_id','room_id','start_date','end_date','schedule_text','tuition','capacity','status'],
+      teachers:['id','full_name','phone','email','status'],
+      rooms:['id','name','capacity'],
+      schedules:['id','class_id','weekday','start_time','end_time','room_id','teacher_id','note','active'],
+      attendance:['id','class_id','student_id','lesson_date','status','note'],
+      fees:['id','student_id','class_id','month','amount_due','amount_paid','paid_at','status','note']
+    } as any;
+    const keys=allowed[module] as string[];
+    const payload=rows.map((r:any)=>{
+      const o:any={};keys.forEach(k=>{if(Object.prototype.hasOwnProperty.call(r,k))o[k]=r[k]});
+      if(o.id==='')delete o.id;
+      return o;
+    }).filter((r:any)=>Object.keys(r).length>0);
+    if(!payload.length)throw new Error('Không tìm thấy cột dữ liệu hợp lệ trong file.');
+    const table=modules.find(x=>x.key===module)!.table;
+    const hasIds=payload.every((r:any)=>r.id);
+    let res;
+    if(hasIds) res=await client.from(table).upsert(payload,{onConflict:'id'});
+    else res=await client.from(table).insert(payload);
+    if(res.error)throw res.error;
+    setMessage(`Đã nhập ${payload.length} dòng vào ${modules.find(x=>x.key===module)!.label}.`);
+   }catch(e:any){setError(e?.message||'Nhập Excel thất bại.')}finally{setBusy(false);e.target.value='';}
+ };
+ return <>
+  <div className="card" style={{padding:20}}>
+   <h3 style={{marginTop:0}}>Import / Export dữ liệu Excel</h3>
+   <p style={{color:'#667085',marginTop:4}}>Sao lưu toàn bộ dữ liệu trung tâm hoặc nhập lại dữ liệu từ file Excel.</p>
+   {error&&<div style={{background:'#fef3f2',color:'#b42318',padding:12,borderRadius:8,margin:'12px 0'}}>{error}</div>}
+   {message&&<div style={{background:'#ecfdf3',color:'#067647',padding:12,borderRadius:8,margin:'12px 0'}}>{message}</div>}
+   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16,marginTop:18}}>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:12,padding:18}}>
+      <h4 style={{marginTop:0}}>📤 Xuất toàn bộ</h4><p style={{fontSize:13,color:'#667085'}}>Tạo một file Excel gồm 7 sheet: Học viên, Lớp học, Giáo viên, Phòng học, Lịch học, Điểm danh và Học phí.</p>
+      <button className="btn btn-primary" disabled={busy} onClick={exportAll}><Download size={16}/> Xuất toàn bộ Excel</button>
+    </div>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:12,padding:18}}>
+      <h4 style={{marginTop:0}}>📄 Xuất từng danh mục</h4>
+      <select className="input" value={module} onChange={e=>setModule(e.target.value)}>{modules.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}><button className="btn btn-light" disabled={busy} onClick={exportModule}><Download size={16}/> Xuất</button><button className="btn btn-light" disabled={busy} onClick={template}><FileSpreadsheet size={16}/> Tải mẫu</button></div>
+    </div>
+    <div style={{border:'1px solid #e4e7ec',borderRadius:12,padding:18}}>
+      <h4 style={{marginTop:0}}>📥 Nhập Excel</h4><p style={{fontSize:13,color:'#667085'}}>Chọn đúng danh mục và nhập file .xlsx/.xls/.csv. File có cột <b>id</b> sẽ cập nhật bản ghi hiện có.</p>
+      <select className="input" value={module} onChange={e=>setModule(e.target.value)}>{modules.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select>
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={importFile}/>
+      <button className="btn btn-primary" style={{marginTop:10}} disabled={busy} onClick={()=>inputRef.current?.click()}><Upload size={16}/> Chọn file Excel</button>
+    </div>
+   </div>
+   <div style={{marginTop:20,padding:14,background:'#f8fafc',borderRadius:10,fontSize:13,color:'#475467'}}>
+    <b>Lưu ý:</b> Nên <b>Xuất toàn bộ Excel</b> trước khi import để có bản sao lưu. Khi import có cột <b>id</b>, hệ thống sẽ cập nhật theo ID; nếu không có ID, hệ thống sẽ thêm bản ghi mới. Với dữ liệu có quan hệ (lớp, học viên, điểm danh, học phí), nên giữ nguyên các ID trong file xuất ra.
+   </div>
+  </div>
+ </>;
 }
 
 function Login(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState(''); const client=supabase();
