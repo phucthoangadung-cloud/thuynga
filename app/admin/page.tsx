@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, ChangeEvent } from 'react';
 import { LayoutDashboard, BookOpen, Users, CalendarDays, ClipboardCheck, Wallet, UserRound, BarChart3, FileSpreadsheet, Menu, Plus, Search, LogOut, Pencil, Trash2, X, Download, Upload } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import * as XLSX from 'xlsx';
 
 type Teacher={id:string;full_name:string;phone?:string|null;email?:string|null;status?:string|null;created_at?:string|null};
