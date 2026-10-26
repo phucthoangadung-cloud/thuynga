@@ -5,8 +5,8 @@ import { ArrowLeft, CalendarDays, Clock3, RefreshCw, Sun, Sunset, Moon, AlertCir
 
 type Row = {
  id:string; weekday:number; start_time:string; end_time:string; active?:boolean; note?:string|null;
- classes?:{id?:string;name?:string;level?:string|null;class_code?:string|null}|null;
- teachers?:{full_name?:string}|null; rooms?:{name?:string}|null;
+ class_id?:string|null; class_name?:string|null; class_level?:string|null; class_code?:string|null;
+ teacher_name?:string|null; room_name?:string|null;
 };
 type SessionKey='morning'|'afternoon'|'evening';
 const DAYS=[{value:1,label:'Thứ 2'},{value:2,label:'Thứ 3'},{value:3,label:'Thứ 4'},{value:4,label:'Thứ 5'},{value:5,label:'Thứ 6'},{value:6,label:'Thứ 7'},{value:7,label:'Chủ nhật'}];
@@ -26,7 +26,7 @@ export default function TimetablePage(){
   const client=getClient();
   if(!client){setError('Thiếu NEXT_PUBLIC_SUPABASE_URL hoặc NEXT_PUBLIC_SUPABASE_ANON_KEY trong Environment Variables của Vercel.');setLoading(false);setBusy(false);return;}
   try{
-   const {data,error}=await client.from('schedules').select('id,weekday,start_time,end_time,active,note,classes(id,name,level,class_code),teachers(full_name),rooms(name)').order('weekday').order('start_time');
+   const {data,error}=await client.from('public_timetable').select('id,weekday,start_time,end_time,active,note,class_id,class_name,class_level,class_code,teacher_name,room_name').order('weekday').order('start_time');
    if(error)throw error;setRows(((data||[]) as unknown as Row[]).filter(r=>r.active!==false));
   }catch(e){setError('Không tải được thời khóa biểu: '+(e instanceof Error?e.message:'Lỗi kết nối Supabase.'));setRows([]);}
   finally{setLoading(false);setBusy(false);}
@@ -54,7 +54,7 @@ export default function TimetablePage(){
   <header className="top"><div className="brand"><div className="logo"><CalendarDays size={25}/></div><div><h1>Thời khóa biểu</h1><p className="subtitle">Trung Tâm Tiếng Anh | Ms Thúy Nga</p></div></div><a className="link" href="/"><ArrowLeft size={16}/> Trang chủ</a></header>
   <nav className="tabs" aria-label="Chọn buổi học">{SESSIONS.map(s=>{const I=s.icon;const count=rows.filter(r=>{const m=mins(r.start_time);return s.key==='morning'?m>=300&&m<720:s.key==='afternoon'?m>=720&&m<1020:m>=1020&&m<1440;}).length;return <button key={s.key} className={'tab '+(session===s.key?'active':'')} onClick={()=>setSession(s.key)} aria-pressed={session===s.key}><span className="tabicon"><I size={21}/></span><span><strong>{s.label}</strong><small>{s.time} · {count} lịch học</small></span></button>;})}</nav>
   <section className="summary"><div><h2><Icon size={22}/>{current.label}</h2><p>{current.desc} Chọn một buổi để xem nhanh lịch các lớp theo thứ trong tuần.</p></div><span className="count">{visible.length} lịch học</span></section>
-  {loading?<div className="message">Đang tải thời khóa biểu...</div>:error?<div className="error"><AlertCircle size={18} style={{verticalAlign:'middle',marginRight:8}}/>{error}<div style={{marginTop:12}}><button className="link" disabled={busy} onClick={()=>void load(true)}><RefreshCw size={15}/> Thử tải lại</button></div></div>:<section className="grid" aria-label={`${current.label} theo thứ trong tuần`}>{DAYS.map(d=>{const dayRows=visible.filter(r=>Number(r.weekday)===d.value);return <div className="day" key={d.value}><div className="dayhead">{d.label}<small>{dayRows.length} lớp</small></div><div className="daybody">{dayRows.map(r=><article className="classcard" key={r.id}><div className="time"><Clock3 size={12} style={{display:'inline',verticalAlign:'-2px',marginRight:4}}/>{tm(r.start_time)} – {tm(r.end_time)}</div><div className="classname">{r.classes?.name||'Lớp học'}</div>{r.classes?.class_code&&<div className="meta">Mã lớp: {r.classes.class_code}</div>}{r.classes?.level&&<div className="meta">{r.classes.level}</div>}<div className="meta">{r.rooms?.name||'Chưa xếp phòng'}{r.teachers?.full_name?' · '+r.teachers.full_name:''}</div></article>)}{!dayRows.length&&<div className="empty">Không có lớp</div>}</div></div>;})}</section>}
+  {loading?<div className="message">Đang tải thời khóa biểu...</div>:error?<div className="error"><AlertCircle size={18} style={{verticalAlign:'middle',marginRight:8}}/>{error}<div style={{marginTop:12}}><button className="link" disabled={busy} onClick={()=>void load(true)}><RefreshCw size={15}/> Thử tải lại</button></div></div>:<section className="grid" aria-label={`${current.label} theo thứ trong tuần`}>{DAYS.map(d=>{const dayRows=visible.filter(r=>Number(r.weekday)===d.value);return <div className="day" key={d.value}><div className="dayhead">{d.label}<small>{dayRows.length} lớp</small></div><div className="daybody">{dayRows.map(r=><article className="classcard" key={r.id}><div className="time"><Clock3 size={12} style={{display:'inline',verticalAlign:'-2px',marginRight:4}}/>{tm(r.start_time)} – {tm(r.end_time)}</div><div className="classname">{r.class_name||'Chưa có tên lớp'}</div>{r.class_code&&<div className="meta">Mã lớp: {r.class_code}</div>}{r.class_level&&<div className="meta">{r.class_level}</div>}<div className="meta">{r.room_name||'Chưa xếp phòng'}{r.teacher_name?' · '+r.teacher_name:''}</div></article>)}{!dayRows.length&&<div className="empty">Không có lớp</div>}</div></div>;})}</section>}
   <footer className="footer"><span>Thời khóa biểu lấy dữ liệu trực tiếp từ lịch học của trung tâm.</span><a className="link" href="/admin">Đăng nhập quản trị</a></footer>
  </div></main>;
 }
