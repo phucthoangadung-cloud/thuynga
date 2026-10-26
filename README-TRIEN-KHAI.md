@@ -34,3 +34,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 - Bản quản lý cũ được chuyển từ `/` sang `/admin`; URL nội bộ sẽ đổi.
 - Không chạy SQL xóa bảng cũ. SQL trong gói chỉ tạo bảng `course_registrations`.
 - Chưa thể xác nhận build/deploy thật nếu chưa có quyền GitHub/Vercel/Supabase. Sau khi tải lên, kiểm tra Vercel Build Logs.
+
+## Cấu hình email nhận đăng ký tư vấn
+Biểu mẫu gửi email bằng Resend API. Trong Vercel → Project → Settings → Environment Variables, thêm:
+- `RESEND_API_KEY`: API key lấy từ tài khoản Resend.
+- `REGISTRATION_EMAIL_TO`: địa chỉ email của trung tâm nhận đăng ký.
+- `REGISTRATION_EMAIL_FROM`: địa chỉ người gửi đã được xác minh (verified) trong Resend, ví dụ `Website Trung Tam <no-reply@tenmien-cua-ban.vn>`.
+- Giữ `NEXT_PUBLIC_SUPABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` hiện có để lưu đăng ký vào Supabase.
+
+Không đưa API key hoặc service role key vào mã nguồn/GitHub. Sau khi thêm biến môi trường, redeploy Vercel. Đăng ký sẽ được lưu vào Supabase và gửi email tới `REGISTRATION_EMAIL_TO`. Cần có tài khoản Resend và xác minh sender domain/email theo yêu cầu của Resend trước khi email gửi thành công.
